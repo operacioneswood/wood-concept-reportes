@@ -3,7 +3,7 @@
 //
 // Depends on: config.js (PC_ROLES, DESIGNER_COLORS, CU_MAP,
 //             CU_EXCLUDE, mapDesignersCU, normStr, esc, fmtNum)
-//             parser.js (_cuFieldVal)
+//             parser.js (_cuFieldVal, parseCUDate)
 // ─────────────────────────────────────────────────────────────
 
 const Schedule = {
@@ -99,6 +99,7 @@ const Schedule = {
   },
 
   // ── CSV parsing ────────────────────────────────────────────
+  // Returns items with all 5 ClickUp date fields as Date|null.
 
   _parseCSV(rows) {
     if (!rows || rows.length < 2) return [];
@@ -111,6 +112,16 @@ const Schedule = {
     const iAsgn   = col('assignee');
     const iStatus = col('status');
     const iCorr   = hdr.findIndex(h => h.includes('correcciones'));
+
+    // Date columns
+    const iFechaInicio = hdr.findIndex(h =>
+      h.includes('fecha de inicio') || h.includes('start date') || h === 'start');
+    const iFinDibujo   = hdr.findIndex(h => h.startsWith('fin de dibujo'));
+    const iEnvioApv    = hdr.findIndex(h => h.includes('envio a aprobacion'));
+    const iAprobado    = hdr.findIndex(h => h === 'aprobado' || h.startsWith('aprobado'));
+    const iEnvioFab    = hdr.findIndex(h => h.includes('envio a fabrica'));
+
+    const getDate = (row, i) => i !== -1 ? parseCUDate(row[i] || '') : null;
 
     const ACTIVE = new Set(['en dibujo', 'enviado a aprobacion',
       'revision de constructivo', 'aprobado', 'proximos a entrar']);
@@ -132,7 +143,18 @@ const Schedule = {
       const corr     = iCorr   !== -1 ? (parseInt(row[iCorr] || '0') || 0) : 0;
 
       for (const designer of designers) {
-        items.push({ id: `${name}|${project}`, name, project, nivel, status: rawStatus, corrections: corr, designer });
+        items.push({
+          id:              `${name}|${project}`,
+          name, project, nivel,
+          status:          rawStatus,
+          corrections:     corr,
+          designer,
+          fechaInicio:     getDate(row, iFechaInicio),
+          finDibujo:       getDate(row, iFinDibujo),
+          envioAprobacion: getDate(row, iEnvioApv),
+          aprobado:        getDate(row, iAprobado),
+          envioFabrica:    getDate(row, iEnvioFab),
+        });
       }
     }
     return items;
@@ -145,6 +167,13 @@ const Schedule = {
     const ACTIVE = new Set(['en dibujo', 'enviado a aprobacion',
       'revision de constructivo', 'aprobado', 'proximos a entrar']);
     const nameById = new Map((rawTasks || []).map(t => [t.id, t.name || '']));
+
+    // Convert a Unix-ms timestamp (number or string) to Date or null.
+    const toDate = ts => {
+      if (!ts) return null;
+      const n = Number(ts);
+      return !isNaN(n) && n > 0 ? new Date(n) : null;
+    };
 
     const items = [];
     for (const t of (rawTasks || [])) {
@@ -163,9 +192,28 @@ const Schedule = {
       const corrRaw = _cuFieldVal(t, fids.corrections);
       const parent  = t.parent ? (nameById.get(t.parent) || '') : (t.folder?.name || t.list?.name || '');
 
+      // Date fields: start_date is a standard ClickUp field; others are custom.
+      const fechaInicio     = toDate(t.start_date);
+      const finDibujo       = toDate(_cuFieldVal(t, fids.finDibujo));
+      const envioAprobacion = toDate(_cuFieldVal(t, fids.envioAprobacion));
+      const aprobado        = toDate(_cuFieldVal(t, fids.aprobado));
+      const envioFabrica    = toDate(_cuFieldVal(t, fids.envio));
+
       for (const designer of designers) {
-        items.push({ id: `${t.name || ''}|${parent}`, name: t.name || '', project: parent,
-          nivel, status: rawStatus, corrections: parseInt(corrRaw || '0') || 0, designer });
+        items.push({
+          id:  `${t.name || ''}|${parent}`,
+          name: t.name || '',
+          project: parent,
+          nivel,
+          status:          rawStatus,
+          corrections:     parseInt(corrRaw || '0') || 0,
+          designer,
+          fechaInicio,
+          finDibujo,
+          envioAprobacion,
+          aprobado,
+          envioFabrica,
+        });
       }
     }
     return items;
@@ -201,105 +249,113 @@ const Schedule = {
     });
   },
 
+  // Each item is calculated independently using its own ClickUp dates.
+  // No sequential chaining — each item's phases are anchored to real dates.
   _calcTimeline(pair, orderedItems) {
-    const times = this._cfg.times;
+    const times  = this._cfg.times;
     const srOnly = !pair.jr;
-    let jrAvail = 0, srAvail = 0;
-    return orderedItems.map(item => {
-      const r = this._calcItem(item, times, jrAvail, srAvail, srOnly);
-      jrAvail = r._jrE;
-      srAvail = r._srE;
-      return r;
-    });
+    return orderedItems.map(item => this._calcItemDates(item, times, srOnly));
   },
 
-  _calcItem(item, times, jrAvail, srAvail, srOnly) {
-    const s       = normStr(item.status || '');
-    const drawDays = this._getDrawDays(item.nivel, times);
-    const corrDays = Math.max(1, item.corrections || 0) * times.jrCorr;
-
-    if (srOnly) return this._calcSrOnly(item, times, Math.max(jrAvail, srAvail), drawDays, corrDays, s);
-
-    let jrE = jrAvail, srE = srAvail;
-    const phases = [];
-
-    const skip1  = s === 'revision de constructivo' || s === 'enviado a aprobacion' || s === 'aprobado';
-    const skip23 = s === 'enviado a aprobacion' || s === 'aprobado';
-    const skip4  = s === 'aprobado';
-
-    if (!skip1) {
-      const e = jrE + drawDays;
-      phases.push({ id: 1, label: 'Jr dibujando', start: jrE, end: e });
-      jrE = e;
+  // ── Phase date helper ──────────────────────────────────────
+  //
+  // Returns { date: Date, source: 'clickup'|'completed'|'overdue'|'estimated' }.
+  // isCurrentPhase: true when the item's status shows it's still in this phase.
+  _phaseEnd(cuDate, startDate, standardDays, isCurrentPhase) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (cuDate) {
+      if (cuDate > today) return { date: cuDate, source: 'clickup' };
+      // Past ClickUp date — overdue if status hasn't advanced past this phase.
+      return { date: cuDate, source: isCurrentPhase ? 'overdue' : 'completed' };
     }
-
-    if (!skip23) {
-      const s2 = Math.max(skip1 ? 0 : jrE, srE);
-      const e2 = s2 + times.srReview;
-      phases.push({ id: 2, label: 'Sr revisando', start: s2, end: e2 });
-      srE = e2;
-      const e3 = srE + times.srSend;
-      phases.push({ id: 3, label: 'Sr enviando', start: srE, end: e3 });
-      srE = e3;
-    }
-
-    let clientEnd = 0;
-    if (!skip4) {
-      const s4 = skip23 ? 0 : srE;
-      const e4 = s4 + times.clientWait;
-      phases.push({ id: 4, label: 'En aprobación', start: s4, end: e4 });
-      clientEnd = e4;
-    }
-
-    const s5 = Math.max(clientEnd, jrE);
-    const e5 = s5 + corrDays;
-    phases.push({ id: 5, label: 'Jr correcciones', start: s5, end: e5 });
-    jrE = e5;
-
-    const s6 = Math.max(jrE, srE);
-    const e6 = s6 + times.srReviewCorr;
-    phases.push({ id: 6, label: 'Sr rev. corr.', start: s6, end: e6 });
-    srE = e6;
-
-    const e7 = srE + times.srElabOP;
-    phases.push({ id: 7, label: 'Listo para fábrica', start: srE, end: e7 });
-    srE = e7;
-
-    return { ...item, phases, fabricaDays: srE, currentPhase: this._currentPhase(s, false), _jrE: jrE, _srE: srE };
+    return { date: this._addBizDays(startDate, standardDays), source: 'estimated' };
   },
 
-  _calcSrOnly(item, times, avail, drawDays, corrDays, s) {
-    let t = avail;
+  // Build the 5-phase timeline for one item using ClickUp dates where available.
+  // Completed phases are shown only when a real ClickUp date exists for them.
+  _calcItemDates(item, times, srOnly) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const s = normStr(item.status || '');
+
+    const skip1 = s === 'revision de constructivo' || s === 'enviado a aprobacion' || s === 'aprobado';
+    const skip2 = s === 'enviado a aprobacion' || s === 'aprobado';
+    const skip3 = s === 'aprobado';
+
     const phases = [];
-    const skip1  = s === 'revision de constructivo' || s === 'enviado a aprobacion' || s === 'aprobado';
-    const skip23 = s === 'enviado a aprobacion' || s === 'aprobado';
-    const skip4  = s === 'aprobado';
+    let lastEnd = today;
 
-    if (!skip1) { phases.push({ id: 1, label: 'Sr dibujando', start: t, end: t + drawDays }); t += drawDays; }
-    if (!skip23) {
-      phases.push({ id: 2, label: 'Sr revisando', start: t, end: t + times.srReview }); t += times.srReview;
-      phases.push({ id: 3, label: 'Sr enviando',  start: t, end: t + times.srSend   }); t += times.srSend;
+    // Phase 1: dibujando
+    const p1Start = item.fechaInicio || today;
+    if (skip1) {
+      if (item.finDibujo) {
+        phases.push({ id: 1, label: srOnly ? 'Sr dibujando' : 'Jr dibujando',
+          startDate: p1Start, endDate: item.finDibujo, source: 'completed' });
+        lastEnd = item.finDibujo;
+      }
+      // No date → skip silently; lastEnd stays at today.
+    } else {
+      const drawDays  = this._getDrawDays(item.nivel, times);
+      const isCurrent = s === 'en dibujo' || s === 'proximos a entrar';
+      const { date: end, source } = this._phaseEnd(item.finDibujo, p1Start, drawDays, isCurrent);
+      phases.push({ id: 1, label: srOnly ? 'Sr dibujando' : 'Jr dibujando',
+        startDate: p1Start, endDate: end, source });
+      lastEnd = end;
     }
-    if (!skip4) {
-      const s4 = skip23 ? avail : t;
-      const e4 = s4 + times.clientWait;
-      phases.push({ id: 4, label: 'En aprobación', start: s4, end: e4 });
-      t = Math.max(t, e4);
-    }
-    phases.push({ id: 5, label: 'Sr correcciones', start: t, end: t + corrDays }); t += corrDays;
-    phases.push({ id: 6, label: 'Sr rev. corr.',   start: t, end: t + times.srReviewCorr }); t += times.srReviewCorr;
-    phases.push({ id: 7, label: 'Listo para fábrica', start: t, end: t + times.srElabOP }); t += times.srElabOP;
 
-    return { ...item, phases, fabricaDays: t, currentPhase: this._currentPhase(s, true), _jrE: t, _srE: t };
+    // Phase 2: Sr revisa + envía aprobación
+    if (skip2) {
+      if (item.envioAprobacion) {
+        phases.push({ id: 2, label: 'Sr revisa + envía',
+          startDate: lastEnd, endDate: item.envioAprobacion, source: 'completed' });
+        lastEnd = item.envioAprobacion;
+      }
+    } else {
+      const isCurrent = s === 'revision de constructivo';
+      const { date: end, source } = this._phaseEnd(item.envioAprobacion, lastEnd, 1, isCurrent);
+      phases.push({ id: 2, label: 'Sr revisa + envía',
+        startDate: lastEnd, endDate: end, source });
+      lastEnd = end;
+    }
+
+    // Phase 3: En aprobación (cliente)
+    if (skip3) {
+      if (item.aprobado) {
+        phases.push({ id: 3, label: 'En aprobación',
+          startDate: lastEnd, endDate: item.aprobado, source: 'completed' });
+        lastEnd = item.aprobado;
+      }
+    } else {
+      const isCurrent = s === 'enviado a aprobacion';
+      const { date: end, source } = this._phaseEnd(item.aprobado, lastEnd, times.clientWait, isCurrent);
+      phases.push({ id: 3, label: 'En aprobación',
+        startDate: lastEnd, endDate: end, source });
+      lastEnd = end;
+    }
+
+    // Phase 4: correcciones (always estimated — no ClickUp field for this phase)
+    const corrDays = Math.max(0.5, (item.corrections || 0) * times.jrCorr);
+    const p4End = this._addBizDays(lastEnd, corrDays);
+    phases.push({ id: 4, label: srOnly ? 'Sr correcciones' : 'Jr correcciones',
+      startDate: lastEnd, endDate: p4End, source: 'estimated' });
+    lastEnd = p4End;
+
+    // Phase 5: Sr elabora OP + envía fábrica
+    const { date: p5End, source: p5Src } =
+      this._phaseEnd(item.envioFabrica, lastEnd, times.srElabOP, false);
+    phases.push({ id: 5, label: 'Sr elabora OP + fábrica',
+      startDate: lastEnd, endDate: p5End, source: p5Src });
+    lastEnd = p5End;
+
+    return { ...item, phases, fabricaDate: lastEnd, currentPhase: this._currentPhase(s, srOnly) };
   },
 
   _currentPhase(status, srOnly) {
     const map = {
-      'proximos a entrar':         srOnly ? 'Sr dibujando'   : 'Jr dibujando',
-      'en dibujo':                 srOnly ? 'Sr dibujando'   : 'Jr dibujando',
-      'revision de constructivo':  'Sr revisando',
-      'enviado a aprobacion':      'En aprobación',
-      'aprobado':                  srOnly ? 'Sr correcciones': 'Jr correcciones',
+      'proximos a entrar':        srOnly ? 'Sr dibujando'    : 'Jr dibujando',
+      'en dibujo':                srOnly ? 'Sr dibujando'    : 'Jr dibujando',
+      'revision de constructivo': 'Sr revisa + envía',
+      'enviado a aprobacion':     'En aprobación',
+      'aprobado':                 srOnly ? 'Sr correcciones' : 'Jr correcciones',
     };
     return map[status] || (srOnly ? 'Sr dibujando' : 'Jr dibujando');
   },
@@ -435,7 +491,7 @@ const Schedule = {
             <table class="cfg-times-table">${tierRows}</table>
           </div>
           <div class="sched-cfg-section">
-            <div class="sched-cfg-title">Tiempos fijos</div>
+            <div class="sched-cfg-title">Tiempos estándar (cuando no hay fecha en ClickUp)</div>
             <table class="cfg-times-table">${fixedRows}</table>
           </div>
         </div>
@@ -453,7 +509,6 @@ const Schedule = {
         this._cfg.pairs[sr] = jr;
         this._saveConfig();
         this._renderAll();
-        // Re-open config
         const p = document.getElementById('sched-cfg-panel');
         if (p) { p.style.display = 'block'; this._renderConfig(p); }
       });
@@ -476,44 +531,87 @@ const Schedule = {
     });
   },
 
-  // ── View 1: Gantt (grouped by project, collapsible) ────────
+  // ── View 1: Gantt (grouped by project, real ClickUp dates) ─
 
   _renderGantt(container, pairResults) {
-    const PX      = 50;
     const LABEL_W = 200;
-    const active  = pairResults.filter(p => p.items.length > 0);
+    const PX      = 22;     // pixels per calendar day
+    const MS      = 86400000;
+    const today   = new Date(); today.setHours(0, 0, 0, 0);
 
+    const active = pairResults.filter(p => p.items.length > 0);
     if (!active.length) {
       container.innerHTML = '<p style="color:var(--muted);padding:24px">No hay ítems activos en ClickUp.</p>';
       return;
     }
 
-    const maxDays = Math.max(1, ...active.flatMap(p => p.timeline.map(t => t.fabricaDays)));
-    const totalW  = LABEL_W + (Math.ceil(maxDays) + 3) * PX;
+    // Day-offset range (relative to today = 0)
+    let minDay = 0, maxDay = 7;
+    for (const { timeline } of active) {
+      for (const item of timeline) {
+        for (const ph of item.phases) {
+          const s = (ph.startDate - today) / MS;
+          const e = (ph.endDate   - today) / MS;
+          if (s < minDay) minDay = s;
+          if (e > maxDay) maxDay = e;
+        }
+      }
+    }
+    minDay = Math.floor(minDay) - 2;
+    maxDay = Math.ceil(maxDay)  + 3;
 
-    // Phase styles: { bg, border, color }
-    const ST = {
-      1: { bg: '#dbeafe', bd: '1px solid #3b82f6',    tx: '#1e40af' },
-      2: { bg: '#ede9fe', bd: '1px solid #7c3aed',    tx: '#5b21b6' },
-      3: { bg: '#ede9fe', bd: '1px solid #7c3aed',    tx: '#5b21b6' },
-      4: { bg: '#f3f4f6', bd: '1px dashed #9ca3af',   tx: '#6b7280' },
-      5: { bg: '#fef3c7', bd: '1px solid #d97706',    tx: '#92400e' },
-      6: { bg: '#ede9fe', bd: '1px solid #7c3aed',    tx: '#5b21b6' },
-      7: { bg: '#d1fae5', bd: '1px solid #10b981',    tx: '#065f46' },
+    const dayToX  = d  => LABEL_W + (d - minDay) * PX;
+    const dateToX = dt => dayToX((dt - today) / MS);
+    const totalW  = LABEL_W + (maxDay - minDay) * PX;
+
+    // Phase base palettes
+    const PC = {
+      1: { light: '#dbeafe', dark: '#1d4ed8', text: '#1e3a8a', base: '#3b82f6' },
+      2: { light: '#ede9fe', dark: '#5b21b6', text: '#4c1d95', base: '#7c3aed' },
+      3: { light: '#f3f4f6', dark: '#6b7280', text: '#374151', base: '#9ca3af' },
+      4: { light: '#fef3c7', dark: '#b45309', text: '#78350f', base: '#d97706' },
+      5: { light: '#d1fae5', dark: '#065f46', text: '#022c22', base: '#10b981' },
     };
 
-    // Grid lines + tick labels for the axis row
+    const barStyle = ph => {
+      const c   = PC[ph.id] || PC[1];
+      const src = ph.source;
+      if (src === 'completed') return { bg: '#e5e7eb', bd: '1px solid #9ca3af', tx: '#6b7280', op: '0.65' };
+      if (src === 'overdue')   return { bg: '#fee2e2', bd: '2px solid #ef4444', tx: '#991b1b', op: '1'    };
+      if (src === 'clickup')   return { bg: c.dark,   bd: `2px solid ${c.base}`, tx: '#fff',  op: '1'    };
+      /* estimated */          return { bg: c.light,  bd: `1px dashed ${c.base}`, tx: c.text, op: '0.9'  };
+    };
+
+    const srcIcon = src => src === 'clickup' ? '📅' : src === 'overdue' ? '⚠' : '';
+
+    const fmtD = d => d.toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const tooltip = ph => {
+      const d = fmtD(ph.endDate);
+      const map = {
+        clickup:   `Fecha en ClickUp: ${d}`,
+        estimated: `Estimado por tiempo estándar: ${d}`,
+        completed: `Completado: ${d}`,
+        overdue:   `⚠ Atrasado — fecha ClickUp: ${d}`,
+      };
+      return `${ph.label} — ${map[ph.source] || d}`;
+    };
+
+    // Axis grid lines (every 7 calendar days)
     const gridLines = [];
-    for (let d = 0; d <= Math.ceil(maxDays) + 2; d += 2) {
-      const x = LABEL_W + d * PX;
+    const firstGrid = Math.ceil(minDay / 7) * 7;
+    for (let d = firstGrid; d <= maxDay; d += 7) {
+      const x  = dayToX(d);
+      const dt = new Date(today.getTime() + d * MS);
+      const lbl = d === 0 ? 'Hoy'
+        : dt.toLocaleDateString('es', { day: '2-digit', month: 'short' });
       gridLines.push(
         `<div style="position:absolute;left:${x}px;top:0;bottom:0;width:1px;background:var(--divider);pointer-events:none"></div>`,
-        `<div style="position:absolute;left:${x}px;bottom:3px;font-size:10px;color:var(--faint);transform:translateX(-50%);white-space:nowrap;pointer-events:none">${d === 0 ? 'Hoy' : '+' + d + 'd'}</div>`
+        `<div style="position:absolute;left:${x}px;bottom:3px;font-size:10px;color:var(--faint);transform:translateX(-50%);white-space:nowrap;pointer-events:none">${lbl}</div>`
       );
     }
 
-    // Today line (spans the full inner content height via absolute on wrapper)
-    const todayX   = LABEL_W;
+    // Today line
+    const todayX    = dayToX(0);
     const todayLine = `<div class="gantt-today-vline" style="position:absolute;left:${todayX}px;top:0;bottom:0;width:2px;background:#ef4444;z-index:10;pointer-events:none">
       <div style="position:absolute;top:2px;left:4px;font-size:9px;color:#ef4444;font-weight:700;white-space:nowrap">Hoy</div>
     </div>`;
@@ -534,21 +632,24 @@ const Schedule = {
       let projIdx   = 0;
 
       for (const [proj, projItems] of projMap) {
-        const pid      = `${pairKey}-p${projIdx++}`;
-        const maxFab   = Math.max(...projItems.map(i => i.fabricaDays));
-        const minStart = Math.min(...projItems.flatMap(i => i.phases.map(p => p.start)));
-        const fabStr   = this._bizDateStr(maxFab, true);
+        const pid = `${pairKey}-p${projIdx++}`;
+
+        // Compute project span from all phase dates
+        const allTs = projItems.flatMap(i => i.phases.flatMap(p => [p.startDate.getTime(), p.endDate.getTime()]));
+        const minTs = Math.min(...allTs);
+        const maxTs = Math.max(...projItems.map(i => i.fabricaDate.getTime()));
+        const fabStr  = new Date(maxTs).toLocaleDateString('es', { day: '2-digit', month: 'short' });
         const projName = proj.length > 28 ? proj.slice(0, 27) + '…' : proj;
 
-        // Mini phase-distribution bar (stacked, 4 px tall)
+        // Mini phase-distribution bar (4px stacked)
         const counts = { draw: 0, review: 0, wait: 0, corr: 0, done: 0 };
         for (const item of projItems) {
           const ph = item.currentPhase;
-          if      (ph.includes('dibujando'))                              counts.draw++;
-          else if (ph.includes('revisando') || ph.includes('enviando'))   counts.review++;
-          else if (ph.includes('aprobaci'))                               counts.wait++;
-          else if (ph.includes('correcci'))                               counts.corr++;
-          else                                                            counts.done++;
+          if      (ph.includes('dibujando'))                            counts.draw++;
+          else if (ph.includes('revisa') || ph.includes('envia'))       counts.review++;
+          else if (ph.includes('aprobaci'))                             counts.wait++;
+          else if (ph.includes('correcci'))                             counts.corr++;
+          else                                                          counts.done++;
         }
         const miniSegs = [
           { n: counts.draw,   bg: '#93c5fd' },
@@ -560,17 +661,15 @@ const Schedule = {
          .map(s => `<div style="flex:${s.n};background:${s.bg}"></div>`)
          .join('');
 
-        // Project span bar in the timeline area
-        const spanBarX = LABEL_W + minStart * PX;
-        const spanBarW = Math.max(8, (maxFab - minStart) * PX);
-        const flagX    = LABEL_W + maxFab * PX;
+        const spanX = dayToX((minTs - today.getTime()) / MS);
+        const flagX = dayToX((maxTs - today.getTime()) / MS);
+        const spanW = Math.max(8, flagX - spanX);
 
         const projTimelineHtml =
-          `<div style="position:absolute;left:${spanBarX}px;width:${spanBarW}px;top:50%;transform:translateY(-50%);height:5px;background:#cbd5e1;border-radius:3px"></div>` +
+          `<div style="position:absolute;left:${spanX}px;width:${spanW}px;top:50%;transform:translateY(-50%);height:5px;background:#cbd5e1;border-radius:3px"></div>` +
           `<div title="Est. fábrica: ${fabStr}" style="position:absolute;left:${flagX}px;top:50%;transform:translate(-2px,-50%);font-size:14px;z-index:2;cursor:default">🏁</div>` +
           `<div style="position:absolute;left:${flagX + 16}px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--muted);white-space:nowrap">${fabStr}</div>`;
 
-        // Project summary row (always visible, click to expand)
         innerHtml += `
           <div class="gantt-proj-row" data-pid="${pid}" data-expanded="false"
                style="display:flex;align-items:center;min-width:${totalW}px;border-bottom:1px solid var(--divider);background:var(--bg);cursor:pointer;user-select:none">
@@ -585,21 +684,27 @@ const Schedule = {
             <div style="position:relative;flex:1;height:36px">${projTimelineHtml}</div>
           </div>`;
 
-        // Item rows (hidden by default)
         for (let ii = 0; ii < projItems.length; ii++) {
           const item      = projItems[ii];
           const globalIdx = timeline.indexOf(item);
           const nStr      = item.nivel !== null ? `N${item.nivel}` : '—';
 
-          const bars = item.phases.map((ph, pi) => {
-            const x = LABEL_W + ph.start * PX + (pi > 0 ? 1 : 0);
-            const w = Math.max(4, (ph.end - ph.start) * PX - (pi > 0 ? 1 : 0) - 1);
-            const s = ST[ph.id];
+          const bars = item.phases.map(ph => {
+            const sx  = dateToX(ph.startDate);
+            const ex  = dateToX(ph.endDate);
+            const w   = Math.max(4, ex - sx - 1);
+            const st  = barStyle(ph);
+            const icon = srcIcon(ph.source);
             const showLabel = w > 60;
-            return `<div title="${esc(ph.label)}" style="position:absolute;left:${x}px;width:${w}px;top:8px;height:24px;background:${s.bg};border:${s.bd};color:${s.tx};border-radius:4px;font-size:9px;font-weight:500;overflow:hidden;white-space:nowrap;padding:0 5px;line-height:24px">${showLabel ? esc(ph.label) : ''}</div>`;
+            const showIcon  = icon && w > 20;
+            const labelTxt  = showLabel
+              ? (showIcon ? `${icon} ${ph.label}` : ph.label)
+              : (showIcon ? icon : '');
+            return `<div title="${esc(tooltip(ph))}" style="position:absolute;left:${sx}px;width:${w}px;top:8px;height:24px;background:${st.bg};border:${st.bd};color:${st.tx};opacity:${st.op};border-radius:4px;font-size:9px;font-weight:500;overflow:hidden;white-space:nowrap;padding:0 4px;line-height:24px">${esc(labelTxt)}</div>`;
           }).join('');
 
-          const itemFlagX = LABEL_W + item.fabricaDays * PX;
+          const fabricaX  = dateToX(item.fabricaDate);
+          const fabricaLbl = item.fabricaDate.toLocaleDateString('es', { day: '2-digit', month: 'short' });
 
           innerHtml += `
             <div class="gantt-row" draggable="true"
@@ -611,8 +716,8 @@ const Schedule = {
               </div>
               <div style="position:relative;flex:1;min-height:40px">
                 ${bars}
-                <div title="Est. fábrica: ${this._bizDateStr(item.fabricaDays, true)}"
-                     style="position:absolute;left:${itemFlagX}px;top:10px;font-size:13px;z-index:3;cursor:default">🏁</div>
+                <div title="Est. fábrica: ${fabricaLbl}"
+                     style="position:absolute;left:${fabricaX}px;top:10px;font-size:13px;z-index:3;cursor:default">🏁</div>
               </div>
             </div>`;
         }
@@ -638,11 +743,10 @@ const Schedule = {
 
     container.innerHTML = `
       <div class="sched-legend">
-        <span class="sched-legend-item" style="background:#dbeafe;border:1px solid #3b82f6;color:#1e40af">Jr dibujando</span>
-        <span class="sched-legend-item" style="background:#ede9fe;border:1px solid #7c3aed;color:#5b21b6">Sr revisando/enviando</span>
-        <span class="sched-legend-item" style="background:#f3f4f6;border:1px dashed #9ca3af;color:#6b7280">En aprobación</span>
-        <span class="sched-legend-item" style="background:#fef3c7;border:1px solid #d97706;color:#92400e">Correcciones</span>
-        <span class="sched-legend-item" style="background:#d1fae5;border:1px solid #10b981;color:#065f46">Listo/fábrica</span>
+        <span class="sched-legend-item" style="background:#1d4ed8;border:2px solid #3b82f6;color:#fff">📅 Fecha ClickUp</span>
+        <span class="sched-legend-item" style="background:#dbeafe;border:1px dashed #3b82f6;color:#1e40af">~ Estimado</span>
+        <span class="sched-legend-item" style="background:#e5e7eb;border:1px solid #9ca3af;color:#6b7280">✓ Completado</span>
+        <span class="sched-legend-item" style="background:#fee2e2;border:2px solid #ef4444;color:#991b1b">⚠ Atrasado</span>
         <span style="font-size:11px;color:var(--faint);padding:3px 0">🏁 = fábrica estimada &nbsp;· Arrastra para reordenar</span>
       </div>
       ${pairsHTML}`;
@@ -669,13 +773,13 @@ const Schedule = {
 
   _renderLista(container, pairResults) {
     const BADGE = {
-      'Jr dibujando':      '#dbeafe|#1e40af',
-      'Sr dibujando':      '#dbeafe|#1e40af',
-      'Sr revisando':      '#ede9fe|#5b21b6',
-      'En aprobación':     '#f3f4f6|#374151',
-      'Jr correcciones':   '#fef3c7|#92400e',
-      'Sr correcciones':   '#fef3c7|#92400e',
-      'Listo para fábrica':'#d1fae5|#065f46',
+      'Jr dibujando':          '#dbeafe|#1e40af',
+      'Sr dibujando':          '#dbeafe|#1e40af',
+      'Sr revisa + envía':     '#ede9fe|#5b21b6',
+      'En aprobación':         '#f3f4f6|#374151',
+      'Jr correcciones':       '#fef3c7|#92400e',
+      'Sr correcciones':       '#fef3c7|#92400e',
+      'Sr elabora OP + fábrica': '#d1fae5|#065f46',
     };
 
     const active = pairResults.filter(p => p.items.length > 0);
@@ -690,9 +794,9 @@ const Schedule = {
 
       const rows = timeline.map((item, idx) => {
         const [bg, fg] = (BADGE[item.currentPhase] || '#f3f4f6|#374151').split('|');
-        const fabDate  = this._addBizDays(today, item.fabricaDays);
+        const fabDate  = item.fabricaDate;
         const fabStr   = fabDate.toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit' });
-        const days     = Math.ceil(item.fabricaDays);
+        const days     = Math.round((fabDate - today) / 86400000);
         const daysHTML = days < 0
           ? `<span style="color:var(--below-text)">Atrasado ${Math.abs(days)}d</span>`
           : `${days} día${days !== 1 ? 's' : ''}`;
@@ -733,7 +837,7 @@ const Schedule = {
   // ── View 3: Disponibilidad ─────────────────────────────────
 
   _renderDisp(container, pairResults) {
-    const today = new Date();
+    const today  = new Date();
     const active = pairResults.filter(p => p.timeline.length > 0);
 
     if (!active.length) {
@@ -741,20 +845,33 @@ const Schedule = {
       return;
     }
 
+    const fmt     = d => d.toLocaleDateString('es', { day: '2-digit', month: 'long' });
+    const fmtNext = d => {
+      const n = new Date(d);
+      n.setDate(n.getDate() + (n.getDay() === 5 ? 3 : n.getDay() === 6 ? 2 : 1));
+      return fmt(n);
+    };
+
     const rows = active.flatMap(({ pair, timeline }) => {
-      const last  = timeline[timeline.length - 1];
-      const srFin = this._addBizDays(today, last._srE);
-      const jrFin = pair.jr ? this._addBizDays(today, last._jrE) : null;
-      const fmt   = d => d.toLocaleDateString('es', { day: '2-digit', month: 'long' });
-      const fmtNext = d => { const n = new Date(d); n.setDate(n.getDate() + (n.getDay() === 5 ? 3 : n.getDay() === 6 ? 2 : 1)); return fmt(n); };
+      // Availability = latest fabricaDate among each designer's items.
+      const srItems = timeline.filter(i => i.designer === pair.sr);
+      const jrItems = pair.jr ? timeline.filter(i => i.designer === pair.jr) : [];
+
+      const srFinMs = srItems.length
+        ? Math.max(...srItems.map(i => i.fabricaDate.getTime()))
+        : today.getTime();
+      const srFin = new Date(srFinMs);
+      const srLate = srFin < today;
 
       const out = [`<tr>
         <td class="avail-name"><span class="sched-pair-dot" style="background:${DESIGNER_COLORS[pair.sr] || '#888'}"></span>${esc(pair.sr)} <span style="color:var(--faint);font-size:11px">(Sr)</span></td>
         <td class="avail-date">${fmt(srFin)}</td>
-        <td class="avail-next"${last._srE < 0 ? ' style="color:var(--below-text)"' : ''}>${fmtNext(srFin)}${last._srE < 0 ? ' ⚠' : ''}</td>
+        <td class="avail-next"${srLate ? ' style="color:var(--below-text)"' : ''}>${fmtNext(srFin)}${srLate ? ' ⚠' : ''}</td>
       </tr>`];
 
-      if (pair.jr && jrFin) {
+      if (pair.jr && jrItems.length) {
+        const jrFinMs = Math.max(...jrItems.map(i => i.fabricaDate.getTime()));
+        const jrFin   = new Date(jrFinMs);
         out.push(`<tr>
           <td class="avail-name" style="padding-left:28px"><span class="sched-pair-dot" style="background:${DESIGNER_COLORS[pair.jr] || '#888'}"></span>${esc(pair.jr)} <span style="color:var(--faint);font-size:11px">(Jr)</span></td>
           <td class="avail-date">${fmt(jrFin)}</td>
