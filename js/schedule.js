@@ -476,76 +476,161 @@ const Schedule = {
     });
   },
 
-  // ── View 1: Gantt ──────────────────────────────────────────
+  // ── View 1: Gantt (grouped by project, collapsible) ────────
 
   _renderGantt(container, pairResults) {
-    const PX = 50; // pixels per business day
-    const active = pairResults.filter(p => p.items.length > 0);
+    const PX      = 50;
+    const LABEL_W = 200;
+    const active  = pairResults.filter(p => p.items.length > 0);
 
     if (!active.length) {
       container.innerHTML = '<p style="color:var(--muted);padding:24px">No hay ítems activos en ClickUp.</p>';
       return;
     }
 
-    const maxDays  = Math.max(1, ...active.flatMap(p => p.timeline.map(t => t.fabricaDays)));
-    const LABEL_W  = 190;
-    const totalW   = LABEL_W + Math.ceil(maxDays + 2) * PX;
+    const maxDays = Math.max(1, ...active.flatMap(p => p.timeline.map(t => t.fabricaDays)));
+    const totalW  = LABEL_W + (Math.ceil(maxDays) + 3) * PX;
 
-    const STYLE = {
-      1: 'background:#dbeafe;border:1px solid #93c5fd;color:#1e40af',
-      2: 'background:#ede9fe;border:1px solid #c4b5fd;color:#5b21b6',
-      3: 'background:#ede9fe;border:1px solid #c4b5fd;color:#5b21b6',
-      4: 'background:#f3f4f6;border:1px dashed #9ca3af;color:#6b7280',
-      5: 'background:#fef3c7;border:1px solid #fcd34d;color:#92400e',
-      6: 'background:#ede9fe;border:1px solid #c4b5fd;color:#5b21b6',
-      7: 'background:#d1fae5;border:1px solid #6ee7b7;color:#065f46',
+    // Phase styles: { bg, border, color }
+    const ST = {
+      1: { bg: '#dbeafe', bd: '1px solid #3b82f6',    tx: '#1e40af' },
+      2: { bg: '#ede9fe', bd: '1px solid #7c3aed',    tx: '#5b21b6' },
+      3: { bg: '#ede9fe', bd: '1px solid #7c3aed',    tx: '#5b21b6' },
+      4: { bg: '#f3f4f6', bd: '1px dashed #9ca3af',   tx: '#6b7280' },
+      5: { bg: '#fef3c7', bd: '1px solid #d97706',    tx: '#92400e' },
+      6: { bg: '#ede9fe', bd: '1px solid #7c3aed',    tx: '#5b21b6' },
+      7: { bg: '#d1fae5', bd: '1px solid #10b981',    tx: '#065f46' },
     };
 
-    // Build axis ticks
-    const ticks = [];
-    for (let d = 0; d <= Math.ceil(maxDays) + 1; d += 2) {
-      ticks.push(`<div style="position:absolute;left:${LABEL_W + d * PX}px;bottom:0;font-size:10px;color:var(--faint);transform:translateX(-50%);white-space:nowrap">${d === 0 ? 'Hoy' : '+' + d + 'd'}</div>`);
+    // Grid lines + tick labels for the axis row
+    const gridLines = [];
+    for (let d = 0; d <= Math.ceil(maxDays) + 2; d += 2) {
+      const x = LABEL_W + d * PX;
+      gridLines.push(
+        `<div style="position:absolute;left:${x}px;top:0;bottom:0;width:1px;background:var(--divider);pointer-events:none"></div>`,
+        `<div style="position:absolute;left:${x}px;bottom:3px;font-size:10px;color:var(--faint);transform:translateX(-50%);white-space:nowrap;pointer-events:none">${d === 0 ? 'Hoy' : '+' + d + 'd'}</div>`
+      );
     }
+
+    // Today line (spans the full inner content height via absolute on wrapper)
+    const todayX   = LABEL_W;
+    const todayLine = `<div class="gantt-today-vline" style="position:absolute;left:${todayX}px;top:0;bottom:0;width:2px;background:#ef4444;z-index:10;pointer-events:none">
+      <div style="position:absolute;top:2px;left:4px;font-size:9px;color:#ef4444;font-weight:700;white-space:nowrap">Hoy</div>
+    </div>`;
 
     const pairsHTML = active.map(({ pair, pairKey, timeline }) => {
       const title = pair.jr ? `${pair.sr} + ${pair.jr}` : `${pair.sr} (sin Jr)`;
+      const color = DESIGNER_COLORS[pair.sr] || '#888';
 
-      const rowsHTML = timeline.map((item, idx) => {
-        const bars = item.phases.map(ph => {
-          const x = LABEL_W + ph.start * PX;
-          const w = Math.max(3, (ph.end - ph.start) * PX);
-          return `<div title="${esc(ph.label)}" style="position:absolute;left:${x}px;width:${w}px;top:7px;height:22px;${STYLE[ph.id]};border-radius:3px;font-size:9px;overflow:hidden;white-space:nowrap;padding:0 3px;line-height:22px">${esc(ph.label)}</div>`;
-        }).join('');
-        const flagX = LABEL_W + item.fabricaDays * PX;
-        const nStr  = item.nivel !== null ? `N${item.nivel}` : '—';
-        const nameShort = item.name.length > 22 ? item.name.slice(0, 21) + '…' : item.name;
+      // Group items by project, preserving priority order
+      const projMap = new Map();
+      for (const item of timeline) {
+        const proj = item.project || '(Sin proyecto)';
+        if (!projMap.has(proj)) projMap.set(proj, []);
+        projMap.get(proj).push(item);
+      }
 
-        return `<div class="gantt-row" draggable="true" data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${idx}" style="min-height:36px">
-          <div class="gantt-item-label" style="width:${LABEL_W}px;min-width:${LABEL_W}px;padding:4px 10px">
-            <div class="gantt-item-name" title="${esc(item.name)}">${esc(nameShort)}</div>
-            <div class="gantt-item-meta">${esc(nStr)} · ${esc(item.currentPhase)}</div>
-          </div>
-          <div style="position:relative;flex:1;height:36px">
-            ${bars}
-            <div title="Fábrica: ${this._bizDateStr(item.fabricaDays, true)}" style="position:absolute;left:${flagX}px;top:6px;font-size:14px;z-index:3">🏁</div>
-          </div>
-        </div>`;
-      }).join('');
+      let innerHtml = '';
+      let projIdx   = 0;
+
+      for (const [proj, projItems] of projMap) {
+        const pid      = `${pairKey}-p${projIdx++}`;
+        const maxFab   = Math.max(...projItems.map(i => i.fabricaDays));
+        const minStart = Math.min(...projItems.flatMap(i => i.phases.map(p => p.start)));
+        const fabStr   = this._bizDateStr(maxFab, true);
+        const projName = proj.length > 28 ? proj.slice(0, 27) + '…' : proj;
+
+        // Mini phase-distribution bar (stacked, 4 px tall)
+        const counts = { draw: 0, review: 0, wait: 0, corr: 0, done: 0 };
+        for (const item of projItems) {
+          const ph = item.currentPhase;
+          if      (ph.includes('dibujando'))                              counts.draw++;
+          else if (ph.includes('revisando') || ph.includes('enviando'))   counts.review++;
+          else if (ph.includes('aprobaci'))                               counts.wait++;
+          else if (ph.includes('correcci'))                               counts.corr++;
+          else                                                            counts.done++;
+        }
+        const miniSegs = [
+          { n: counts.draw,   bg: '#93c5fd' },
+          { n: counts.review, bg: '#c4b5fd' },
+          { n: counts.wait,   bg: '#d1d5db' },
+          { n: counts.corr,   bg: '#fcd34d' },
+          { n: counts.done,   bg: '#6ee7b7' },
+        ].filter(s => s.n > 0)
+         .map(s => `<div style="flex:${s.n};background:${s.bg}"></div>`)
+         .join('');
+
+        // Project span bar in the timeline area
+        const spanBarX = LABEL_W + minStart * PX;
+        const spanBarW = Math.max(8, (maxFab - minStart) * PX);
+        const flagX    = LABEL_W + maxFab * PX;
+
+        const projTimelineHtml =
+          `<div style="position:absolute;left:${spanBarX}px;width:${spanBarW}px;top:50%;transform:translateY(-50%);height:5px;background:#cbd5e1;border-radius:3px"></div>` +
+          `<div title="Est. fábrica: ${fabStr}" style="position:absolute;left:${flagX}px;top:50%;transform:translate(-2px,-50%);font-size:14px;z-index:2;cursor:default">🏁</div>` +
+          `<div style="position:absolute;left:${flagX + 16}px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--muted);white-space:nowrap">${fabStr}</div>`;
+
+        // Project summary row (always visible, click to expand)
+        innerHtml += `
+          <div class="gantt-proj-row" data-pid="${pid}" data-expanded="false"
+               style="display:flex;align-items:center;min-width:${totalW}px;border-bottom:1px solid var(--divider);background:var(--bg);cursor:pointer;user-select:none">
+            <div style="width:${LABEL_W}px;min-width:${LABEL_W}px;padding:7px 10px;display:flex;align-items:center;gap:7px;flex-shrink:0">
+              <span class="gprow-arrow" style="font-size:10px;color:var(--faint);width:10px;flex-shrink:0;transition:transform .15s">▶</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(proj)}">${esc(projName)}</div>
+                <div style="display:flex;height:4px;border-radius:2px;overflow:hidden;width:80px;gap:1px;margin-top:3px">${miniSegs}</div>
+              </div>
+              <span style="font-size:11px;color:var(--faint);white-space:nowrap;flex-shrink:0">${projItems.length} ítem${projItems.length !== 1 ? 's' : ''}</span>
+            </div>
+            <div style="position:relative;flex:1;height:36px">${projTimelineHtml}</div>
+          </div>`;
+
+        // Item rows (hidden by default)
+        for (let ii = 0; ii < projItems.length; ii++) {
+          const item      = projItems[ii];
+          const globalIdx = timeline.indexOf(item);
+          const nStr      = item.nivel !== null ? `N${item.nivel}` : '—';
+
+          const bars = item.phases.map((ph, pi) => {
+            const x = LABEL_W + ph.start * PX + (pi > 0 ? 1 : 0);
+            const w = Math.max(4, (ph.end - ph.start) * PX - (pi > 0 ? 1 : 0) - 1);
+            const s = ST[ph.id];
+            const showLabel = w > 60;
+            return `<div title="${esc(ph.label)}" style="position:absolute;left:${x}px;width:${w}px;top:8px;height:24px;background:${s.bg};border:${s.bd};color:${s.tx};border-radius:4px;font-size:9px;font-weight:500;overflow:hidden;white-space:nowrap;padding:0 5px;line-height:24px">${showLabel ? esc(ph.label) : ''}</div>`;
+          }).join('');
+
+          const itemFlagX = LABEL_W + item.fabricaDays * PX;
+
+          innerHtml += `
+            <div class="gantt-row" draggable="true"
+                 data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${globalIdx}" data-pid="${pid}"
+                 style="display:none;min-height:40px;background:#fff;padding-left:0">
+              <div class="gantt-item-label" style="width:${LABEL_W}px;min-width:${LABEL_W}px;padding:5px 10px 5px 28px">
+                <div class="gantt-item-name" style="white-space:normal;word-break:break-word;font-size:12px;font-weight:500;line-height:1.3">${esc(item.name)}</div>
+                <div class="gantt-item-meta">${esc(nStr)} · ${esc(item.currentPhase)}</div>
+              </div>
+              <div style="position:relative;flex:1;min-height:40px">
+                ${bars}
+                <div title="Est. fábrica: ${this._bizDateStr(item.fabricaDays, true)}"
+                     style="position:absolute;left:${itemFlagX}px;top:10px;font-size:13px;z-index:3;cursor:default">🏁</div>
+              </div>
+            </div>`;
+        }
+      }
 
       return `<div class="sched-pair-block">
         <div class="sched-pair-title">
-          <span class="sched-pair-dot" style="background:${DESIGNER_COLORS[pair.sr] || '#888'}"></span>
+          <span class="sched-pair-dot" style="background:${color}"></span>
           ${esc(title)}
           <span class="sched-pair-count">${timeline.length} ítem${timeline.length !== 1 ? 's' : ''}</span>
         </div>
-        <div style="overflow-x:auto;padding-bottom:4px">
-          <div style="position:relative;height:24px;min-width:${totalW}px;background:var(--bg);border-bottom:1px solid var(--divider)">
-            ${ticks.join('')}
-            <div style="position:absolute;left:${LABEL_W}px;top:0;bottom:0;width:2px;background:#ef4444"></div>
-          </div>
+        <div style="overflow-x:auto">
           <div style="position:relative;min-width:${totalW}px">
-            <div style="position:absolute;left:${LABEL_W}px;top:0;bottom:0;width:2px;background:#ef4444;opacity:0.25;z-index:1"></div>
-            ${rowsHTML}
+            ${todayLine}
+            <div style="position:relative;height:28px;border-bottom:2px solid var(--border);background:var(--bg)">
+              ${gridLines.join('')}
+            </div>
+            ${innerHtml}
           </div>
         </div>
       </div>`;
@@ -553,14 +638,29 @@ const Schedule = {
 
     container.innerHTML = `
       <div class="sched-legend">
-        <span class="sched-legend-item" style="background:#dbeafe;border:1px solid #93c5fd;color:#1e40af">Jr dibujando</span>
-        <span class="sched-legend-item" style="background:#ede9fe;border:1px solid #c4b5fd;color:#5b21b6">Sr revisando/enviando</span>
+        <span class="sched-legend-item" style="background:#dbeafe;border:1px solid #3b82f6;color:#1e40af">Jr dibujando</span>
+        <span class="sched-legend-item" style="background:#ede9fe;border:1px solid #7c3aed;color:#5b21b6">Sr revisando/enviando</span>
         <span class="sched-legend-item" style="background:#f3f4f6;border:1px dashed #9ca3af;color:#6b7280">En aprobación</span>
-        <span class="sched-legend-item" style="background:#fef3c7;border:1px solid #fcd34d;color:#92400e">Correcciones</span>
-        <span class="sched-legend-item" style="background:#d1fae5;border:1px solid #6ee7b7;color:#065f46">Listo/fábrica</span>
-        <span style="font-size:11px;color:var(--faint);padding:3px 0">🏁 = fecha estimada de envío a fábrica</span>
+        <span class="sched-legend-item" style="background:#fef3c7;border:1px solid #d97706;color:#92400e">Correcciones</span>
+        <span class="sched-legend-item" style="background:#d1fae5;border:1px solid #10b981;color:#065f46">Listo/fábrica</span>
+        <span style="font-size:11px;color:var(--faint);padding:3px 0">🏁 = fábrica estimada &nbsp;· Arrastra para reordenar</span>
       </div>
       ${pairsHTML}`;
+
+    // Bind project row collapse/expand (pure DOM toggle, no re-render)
+    container.querySelectorAll('.gantt-proj-row').forEach(projRow => {
+      projRow.addEventListener('click', () => {
+        const pid      = projRow.dataset.pid;
+        const expanded = projRow.dataset.expanded === 'true';
+        projRow.dataset.expanded = expanded ? 'false' : 'true';
+        const arrow = projRow.querySelector('.gprow-arrow');
+        if (arrow) arrow.textContent = expanded ? '▶' : '▼';
+        projRow.style.background = expanded ? 'var(--bg)' : 'var(--divider)';
+        container.querySelectorAll(`.gantt-row[data-pid="${pid}"]`).forEach(r => {
+          r.style.display = expanded ? 'none' : 'flex';
+        });
+      });
+    });
 
     this._bindDrag(container, pairResults);
   },
