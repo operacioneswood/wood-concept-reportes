@@ -41,11 +41,11 @@ const App = {
     });
     if (id === 'dashboard') Dashboard.render().catch(console.error);
     if (id === 'compare')   Compare.render().catch(console.error);
-    if (id === 'workload') {
+    if (id === 'schedule') {
       if (this._sourceMode === 'api' && this._cuApiData) {
-        Workload.renderFromAPI(this._cuApiData.rawTasks, this._cuApiData.fieldIds);
+        Schedule.renderFromAPI(this._cuApiData.rawTasks, this._cuApiData.fieldIds);
       } else {
-        Workload.render(this._cuRows);
+        Schedule.render(this._cuRows);
       }
     }
   },
@@ -348,12 +348,12 @@ const App = {
     const btn = document.getElementById('btn-generate');
     if (btn) btn.disabled = !mode;
 
-    // Refresh workload tab live if it's currently visible
-    if (this._screen === 'workload') {
+    // Refresh schedule tab live if it's currently visible
+    if (this._screen === 'schedule') {
       if (this._sourceMode === 'api' && this._cuApiData) {
-        Workload.renderFromAPI(this._cuApiData.rawTasks, this._cuApiData.fieldIds);
+        Schedule.renderFromAPI(this._cuApiData.rawTasks, this._cuApiData.fieldIds);
       } else {
-        Workload.render(this._cuRows);
+        Schedule.render(this._cuRows);
       }
     }
   },

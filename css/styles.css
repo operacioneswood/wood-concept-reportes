@@ -1070,45 +1070,203 @@ body {
 .delta-wrap { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); overflow: auto; }
 
 /* ════════════════════════════════════════════════════════════
-   WORKLOAD SCREEN
+   SCHEDULE SCREEN
    ════════════════════════════════════════════════════════════ */
-.workload-wrap {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 40px 24px 80px;
-}
-.workload-header { margin-bottom: 28px; }
-.workload-header h1 { font-family: 'DM Serif Display', serif; font-size: 24px; margin-bottom: 5px; }
+.sched-wrap { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+.sched-header { margin-bottom: 24px; }
+.sched-header h1 { font-family: 'DM Serif Display', serif; font-size: 24px; margin-bottom: 5px; }
 
-/* Action buttons row (PDF + change file) */
-.wl-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-/* Empty state prompt */
-.wl-prompt {
-  text-align: center;
-  padding: 80px 24px;
-  color: var(--muted);
-}
+/* Empty state */
+.wl-prompt { text-align: center; padding: 80px 24px; color: var(--muted); }
 .wl-prompt-icon { font-size: 44px; margin-bottom: 16px; }
 .wl-prompt p { font-size: 14px; margin-bottom: 6px; }
 
-/* Status breakdown rows inside the card body */
-.wl-breakdown-row {
+/* Toolbar */
+.sched-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sched-view-tabs { display: flex; gap: 6px; }
+.sched-tab {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--card);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.sched-tab:hover { background: var(--divider); }
+.sched-tab.active { background: var(--text); color: var(--card); border-color: var(--text); }
+
+/* Config panel */
+.sched-config-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+.sched-config-inner { display: flex; gap: 32px; flex-wrap: wrap; }
+.sched-cfg-section { flex: 1; min-width: 220px; }
+.sched-cfg-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.cfg-pairs-table { border-collapse: collapse; width: 100%; }
+.cfg-pairs-table td { padding: 5px 6px; font-size: 13px; vertical-align: middle; }
+.cfg-sr-name { font-weight: 600; color: var(--text); white-space: nowrap; padding-right: 8px; }
+.cfg-jr-select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12.5px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.cfg-times-table { border-collapse: collapse; width: 100%; }
+.cfg-times-table td { padding: 4px 6px; font-size: 12.5px; vertical-align: middle; }
+.cfg-time-label { color: var(--text); }
+.cfg-time-input {
+  width: 56px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 12.5px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: right;
+}
+.cfg-time-unit { color: var(--faint); font-size: 11.5px; white-space: nowrap; }
+
+/* Pair block (shared by all views) */
+.sched-pair-block {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+.sched-pair-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 0;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--divider);
-  font-size: 12.5px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
 }
-.wl-breakdown-row:last-of-type { border-bottom: none; }
-.wl-status-label   { flex: 1; color: var(--text); }
-.wl-breakdown-count { color: var(--faint); white-space: nowrap; font-size: 11.5px; }
-.wl-breakdown-pc   { color: var(--muted); font-weight: 600; white-space: nowrap; min-width: 48px; text-align: right; }
+.sched-pair-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.sched-pair-count {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--faint);
+  background: var(--divider);
+  padding: 2px 8px;
+  border-radius: 100px;
+}
+
+/* Legend */
+.sched-legend {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  font-size: 11.5px;
+}
+.sched-legend-item {
+  padding: 3px 9px;
+  border-radius: 100px;
+  font-weight: 500;
+}
+
+/* Gantt */
+.gantt-container { overflow-x: auto; padding-bottom: 4px; }
+.gantt-axis { display: flex; align-items: flex-end; padding: 0 0 4px 0; }
+.gantt-axis-label {
+  position: absolute;
+  font-size: 10px;
+  color: var(--faint);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.gantt-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--divider);
+  min-height: 44px;
+  cursor: grab;
+}
+.gantt-row:last-child { border-bottom: none; }
+.gantt-row:hover { background: #faf9f7; }
+.gantt-item-label {
+  padding: 6px 12px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--divider);
+}
+.gantt-item-name { font-size: 12px; font-weight: 500; color: var(--text); }
+.gantt-item-meta { font-size: 10.5px; color: var(--faint); margin-top: 2px; }
+
+/* Lista view */
+.sched-list-header {
+  display: grid;
+  grid-template-columns: 28px 1fr 160px 130px;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--divider);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.sched-list-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 160px 130px;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--divider);
+  align-items: center;
+  cursor: grab;
+}
+.sched-list-row:last-child { border-bottom: none; }
+.sched-list-row:hover { background: #faf9f7; }
+.sched-list-num { font-size: 12px; font-weight: 700; color: var(--faint); text-align: center; }
+.sched-list-name { font-size: 13px; font-weight: 500; color: var(--text); }
+.sched-list-meta { font-size: 11px; color: var(--faint); margin-top: 2px; }
+.sched-phase-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 100px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.sched-fab-date { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.sched-fab-days { font-size: 11px; color: var(--faint); margin-top: 2px; }
+
+/* Disponibilidad view */
+.avail-table { width: 100%; border-collapse: collapse; }
+.avail-table th, .avail-table td { padding: 10px 16px; text-align: left; font-size: 13px; }
+.avail-table thead tr { border-bottom: 2px solid var(--border); }
+.avail-table tbody tr { border-bottom: 1px solid var(--divider); }
+.avail-table tbody tr:last-child { border-bottom: none; }
+.avail-table th { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.avail-name { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.avail-date { color: var(--muted); }
+.avail-next { font-weight: 600; color: var(--text); }
 
 /* ════════════════════════════════════════════════════════════
    PRINT STYLES

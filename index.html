@@ -23,7 +23,7 @@
       <button class="nav-btn" data-screen="report" id="nav-btn-report" disabled>Reporte mensual</button>
       <button class="nav-btn" data-screen="dashboard">Dashboard histórico</button>
       <button class="nav-btn" data-screen="compare">Comparar meses</button>
-      <button class="nav-btn" data-screen="workload">Carga de Trabajo (PC)</button>
+      <button class="nav-btn" data-screen="schedule">Cronograma</button>
     </div>
     <div class="nav-saved" id="nav-saved"></div>
   </nav>
@@ -296,14 +296,14 @@
       </div>
     </div>
 
-    <!-- ══════════════ SCREEN 5: WORKLOAD ══════════════ -->
-    <div id="screen-workload" class="screen">
-      <div class="workload-wrap">
-        <div class="workload-header">
-          <h1>Carga de Trabajo</h1>
-          <p class="dash-sub">Puntos de complejidad (PC) activos por diseñador</p>
+    <!-- ══════════════ SCREEN 5: SCHEDULE ══════════════ -->
+    <div id="screen-schedule" class="screen">
+      <div class="sched-wrap">
+        <div class="sched-header">
+          <h1>Cronograma</h1>
+          <p class="dash-sub">Flujo de trabajo estimado por par Sr + Jr</p>
         </div>
-        <div id="wl-body"></div>
+        <div id="sched-body"></div>
       </div>
     </div>
 
@@ -316,10 +316,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
-  <!-- jsPDF (client-side PDF generation for workload tab) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-
   <!-- Scripts — load order matters -->
   <script src="js/config.js"></script>
   <script src="js/firebase-config.js"></script>
@@ -330,7 +326,7 @@
   <script src="js/charts.js"></script>
   <script src="js/dashboard.js"></script>
   <script src="js/compare.js"></script>
-  <script src="js/workload.js"></script>
+  <script src="js/schedule.js"></script>
   <script src="js/clickup.js"></script>
   <script src="js/app.js"></script>
 </body>
