@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "reporte",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-l", "3400", "."],
+      "port": 3400
+    }
+  ]
+}

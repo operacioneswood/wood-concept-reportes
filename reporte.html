@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wood Concept · Reporte de Diseño</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f4f2ed; --card: #fff; --border: #e2ddd5; --divider: #ede9e2;
+  --text: #1c1a17; --muted: #6b6660; --faint: #a09b94;
+  --aprob-bg: #e8f0fc; --aprob-text: #1a4fa0;
+  --prod-bg: #e4f4ec;  --prod-text: #15683a;
+  --above-bg: #e4f4ec; --above-text: #15683a;
+  --below-bg: #fff1f2; --below-text: #b91c1c;
+  --fallback: #9B5C0A; --added: #15683a; --warn: #b45309;
+  --r: 12px;
+}
+body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; -webkit-font-smoothing:antialiased; }
+
+/* ── UPLOAD ── */
+#upload-screen { max-width:820px; margin:0 auto; padding:52px 24px 80px; }
+.upload-logo { text-align:center; margin-bottom:40px; }
+.upload-logo h1 { font-family:'DM Serif Display',serif; font-size:26px; margin-bottom:6px; }
+.upload-logo p { font-size:14px; color:var(--muted); }
+
+.drop-zones { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:12px; }
+.drop-zone {
+  background:var(--card); border:2px dashed var(--border); border-radius:var(--r);
+  padding:28px 20px 22px; text-align:center; cursor:pointer;
+  transition:border-color .18s, background .18s; position:relative; min-height:148px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+}
+.drop-zone .dz-input {
+  position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;
+}
+.drop-zone.drag-over { border-color:#185FA5; background:#f5f8ff; }
+.drop-zone.loaded { border-style:solid; border-color:#15683a; background:#f2faf5; cursor:default; }
+.drop-zone.loaded .dz-input { display:none; }
+.drop-zone.loaded .dz-idle { display:none; }
+.dz-idle { pointer-events:none; }
+.dz-icon { font-size:26px; margin-bottom:8px; }
+.drop-zone h3 { font-size:13px; font-weight:600; margin-bottom:3px; }
+.dz-hint { font-size:12px; color:var(--muted); line-height:1.5; }
+.dz-badge {
+  display:inline-block; font-size:10px; font-weight:600; padding:2px 7px;
+  border-radius:100px; margin-bottom:6px;
+}
+.dz-badge.req { background:#fef3c7; color:#92400e; }
+.dz-badge.opt { background:#f0f0ee; color:var(--muted); }
+
+.dz-loaded-state {
+  display:none; width:100%; flex-direction:column; align-items:center; gap:8px;
+}
+.drop-zone.loaded .dz-loaded-state { display:flex; }
+.dz-check { font-size:22px; color:#15683a; }
+.dz-fname { font-size:13px; font-weight:500; color:var(--text); word-break:break-all; text-align:center; }
+.dz-fsize { font-size:11px; color:var(--muted); }
+.dz-remove {
+  background:none; border:1px solid var(--border); border-radius:6px;
+  padding:3px 10px; font-size:11px; color:var(--muted); cursor:pointer;
+  transition:border-color .15s, color .15s; font-family:'DM Sans',sans-serif;
+}
+.dz-remove:hover { border-color:#b91c1c; color:#b91c1c; }
+
+.mode-badge {
+  display:flex; align-items:center; gap:8px; padding:10px 16px;
+  border-radius:8px; margin-bottom:12px; font-size:13px;
+}
+.mode-badge.hidden { display:none; }
+.mode-badge.mode-a { background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; }
+.mode-badge.mode-b { background:#f0fdf4; color:#166534; border:1px solid #bbf7d0; }
+.mode-badge.mode-c { background:#fff7ed; color:#9a3412; border:1px solid #fed7aa; }
+.mode-badge .mb-dot { width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0; }
+.mode-badge strong { font-weight:600; }
+
+.controls-row {
+  background:var(--card); border:1px solid var(--border); border-radius:var(--r);
+  padding:16px 20px; display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;
+}
+.controls-row label { font-size:13px; font-weight:500; color:var(--muted); white-space:nowrap; }
+.controls-row select, .controls-row input[type=number] {
+  border:1px solid var(--border); border-radius:8px; padding:7px 11px;
+  font-family:'DM Sans',sans-serif; font-size:13px; color:var(--text);
+  background:var(--bg); outline:none; transition:border-color .15s;
+}
+.controls-row select:focus, .controls-row input[type=number]:focus { border-color:#185FA5; }
+.controls-row input[type=number] { width:84px; }
+.spacer { flex:1; }
+
+.btn-primary {
+  background:var(--text); color:#fff; border:none; border-radius:8px;
+  padding:9px 22px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500;
+  cursor:pointer; transition:background .15s, opacity .15s; white-space:nowrap;
+}
+.btn-primary:disabled { opacity:.32; cursor:not-allowed; }
+.btn-primary:not(:disabled):hover { background:#2e2b26; }
+.btn-secondary {
+  background:var(--card); color:var(--text); border:1px solid var(--border);
+  border-radius:8px; padding:8px 16px; font-family:'DM Sans',sans-serif;
+  font-size:13px; font-weight:500; cursor:pointer; transition:background .15s, border-color .15s;
+}
+.btn-secondary:hover { background:var(--bg); border-color:var(--muted); }
+
+.error-banner {
+  background:#fff1f2; border:1px solid #fecdd3; border-radius:8px;
+  padding:11px 16px; font-size:13px; color:#b91c1c; margin-bottom:14px; display:none;
+}
+.instructions {
+  background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:20px 22px;
+}
+.instr-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--faint); margin-bottom:14px; }
+.instr-cols { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.instr-cols h5 { font-size:13px; font-weight:600; margin-bottom:6px; }
+.instr-cols ol { padding-left:16px; font-size:12px; color:var(--muted); line-height:1.75; }
+
+/* ── REPORT ── */
+#report-screen { display:none; max-width:960px; margin:0 auto; padding:44px 24px 80px; }
+.report-topbar { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:36px; gap:16px; }
+.report-title h1 { font-family:'DM Serif Display',serif; font-size:24px; margin-bottom:5px; }
+.report-sub { font-size:12px; color:var(--muted); line-height:1.7; }
+.report-actions { display:flex; gap:8px; flex-shrink:0; }
+
+.metrics-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:28px; }
+.metric-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:18px 20px; }
+.metric-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--faint); margin-bottom:6px; }
+.metric-value { font-family:'DM Serif Display',serif; font-size:30px; line-height:1; }
+.metric-sub { font-size:11px; color:var(--muted); margin-top:4px; }
+.metric-note { font-size:11px; color:var(--warn); margin-top:6px; font-style:italic; }
+
+/* ── VALIDATION PANEL ── */
+.val-panel {
+  background:var(--card); border:1px solid var(--border); border-radius:var(--r);
+  margin-bottom:28px; overflow:hidden;
+}
+.val-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 20px; cursor:pointer; user-select:none; gap:12px;
+  border-bottom:1px solid var(--divider);
+}
+.val-header:hover { background:#fafaf9; }
+.val-header-left { display:flex; align-items:center; gap:10px; }
+.val-title-text { font-size:13px; font-weight:600; }
+.val-summary-pill {
+  display:inline-flex; align-items:center; padding:3px 10px;
+  border-radius:100px; font-size:11.5px; font-weight:500;
+  background:var(--prod-bg); color:var(--prod-text);
+}
+.val-toggle-btn {
+  background:none; border:1px solid var(--border); border-radius:6px;
+  padding:4px 10px; font-size:11px; color:var(--muted); cursor:pointer;
+  font-family:'DM Sans',sans-serif; white-space:nowrap; transition:border-color .15s;
+}
+.val-toggle-btn:hover { border-color:var(--muted); }
+.val-body { padding:0; }
+.val-sections { display:grid; grid-template-columns:repeat(3,1fr); }
+.val-section { padding:16px 18px; }
+.val-section:not(:last-child) { border-right:1px solid var(--divider); }
+.val-sec-title {
+  font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em;
+  margin-bottom:10px; display:flex; align-items:center; gap:5px;
+}
+.val-sec-title.green { color:var(--prod-text); }
+.val-sec-title.amber { color:var(--warn); }
+.val-item { font-size:12px; color:var(--muted); padding:4px 0; border-bottom:1px solid var(--divider); line-height:1.4; }
+.val-item:last-child { border-bottom:none; }
+.val-item-op { font-family:'Courier New',monospace; font-size:11px; color:var(--faint); display:block; }
+.val-empty { font-size:12px; color:var(--faint); font-style:italic; padding:6px 0; }
+
+.section-heading { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.09em; color:var(--faint); margin-bottom:14px; }
+
+/* ── DESIGNER CARD ── */
+.designer-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); margin-bottom:18px; overflow:hidden; }
+.card-header { padding:20px 24px 16px; border-bottom:1px solid var(--divider); }
+.card-top { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+.designer-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.designer-name { font-family:'DM Serif Display',serif; font-size:19px; flex:1; min-width:100px; }
+.pills { display:flex; gap:6px; flex-wrap:wrap; }
+.pill { display:inline-flex; align-items:center; padding:4px 10px; border-radius:100px; font-size:11.5px; font-weight:500; white-space:nowrap; }
+.pill-aprob { background:var(--aprob-bg); color:var(--aprob-text); }
+.pill-prod  { background:var(--prod-bg);  color:var(--prod-text); }
+.pill-above { background:var(--above-bg); color:var(--above-text); }
+.pill-below { background:var(--below-bg); color:var(--below-text); }
+.pill-neutral { background:#f0eeeb; color:var(--muted); }
+
+.bar-wrap { position:relative; padding-bottom:20px; margin-bottom:12px; }
+.bar-track { height:6px; background:var(--divider); border-radius:3px; overflow:hidden; }
+.bar-fill { height:100%; border-radius:3px; transition:width .4s ease; }
+.bar-tick { position:absolute; top:-3px; width:2px; height:12px; background:var(--faint); border-radius:1px; transform:translateX(-50%); }
+.bar-tick-label { position:absolute; top:10px; font-size:10px; color:var(--faint); transform:translateX(-50%); white-space:nowrap; }
+
+.project-tags { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px; }
+.project-tag { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:2px 8px; font-size:11px; color:var(--muted); }
+.card-stats { font-size:11.5px; color:var(--faint); }
+
+.card-body { display:grid; grid-template-columns:1fr 1fr; }
+.card-body.single-col { grid-template-columns:1fr; }
+.item-col { padding:16px 22px; }
+.item-col:first-child:not(:last-child) { border-right:1px solid var(--divider); }
+.col-heading { display:flex; align-items:center; gap:6px; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; margin-bottom:12px; }
+.col-dot { width:6px; height:6px; border-radius:50%; }
+
+.item-row { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--divider); }
+.item-row:last-of-type { border-bottom:none; }
+.item-info { flex:1; min-width:0; }
+.item-name { font-size:12.5px; color:var(--text); line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.item-name.no-level { color:var(--faint); }
+.item-project { font-size:11px; color:var(--faint); font-style:italic; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.item-op { font-size:10px; color:var(--faint); font-family:'Courier New',monospace; margin-top:1px; }
+.item-score { font-size:12.5px; font-weight:500; color:var(--muted); white-space:nowrap; flex-shrink:0; padding-top:1px; }
+.item-score.no-level { color:var(--faint); font-weight:400; }
+.col-subtotal { display:flex; justify-content:space-between; padding:9px 0 0; font-size:12px; font-weight:600; color:var(--muted); border-top:1px solid var(--border); margin-top:2px; }
+.col-empty { font-size:12px; color:var(--faint); font-style:italic; padding:6px 0; }
+
+.mark-fallback { color:var(--fallback); font-size:10px; }
+.mark-added    { color:var(--added);    font-size:11px; margin-right:2px; font-weight:600; }
+.mark-warn     { color:var(--warn);     font-size:11px; margin-right:2px; }
+
+/* ── UNASSIGNED ── */
+.unassigned-section { margin-top:36px; }
+.unassigned-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:20px 24px; opacity:.65; }
+.unassigned-label { font-size:12px; font-weight:500; color:var(--muted); margin-bottom:14px; }
+.unassigned-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+
+/* ── FOOTER ── */
+.report-footer { margin-top:48px; background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:20px 22px; font-size:12px; color:var(--muted); line-height:1.8; }
+.report-footer strong { color:var(--text); }
+.legend-row { display:flex; flex-wrap:wrap; gap:16px; margin-top:8px; }
+.legend-item { display:flex; align-items:center; gap:5px; font-size:12px; }
+
+/* ── PRINT ── */
+@media print {
+  body { background:#fff !important; }
+  #upload-screen { display:none !important; }
+  #report-screen { display:block !important; padding:16px; max-width:100%; }
+  .report-actions, .val-toggle-btn { display:none !important; }
+  .val-body { display:block !important; }
+  .designer-card { break-inside:avoid; page-break-inside:avoid; }
+  .metrics-grid, .val-panel, .report-footer { break-inside:avoid; }
+}
+  </style>
+</head>
+<body>
+
+<!-- ══════════════ UPLOAD SCREEN ══════════════ -->
+<div id="upload-screen">
+  <div class="upload-logo">
+    <h1>Wood Concept · Reporte de Diseño</h1>
+    <p>Sube uno o ambos archivos CSV para generar el reporte del mes</p>
+  </div>
+
+  <div id="error-banner" class="error-banner"></div>
+
+  <div class="drop-zones">
+    <!-- ClickUp -->
+    <div class="drop-zone" id="dz-cu">
+      <input type="file" accept=".csv,.txt" id="file-cu" class="dz-input">
+      <div class="dz-idle">
+        <div class="dz-icon">📋</div>
+        <div class="dz-badge req">Requerido para Modo A / B</div>
+        <h3>ClickUp CSV</h3>
+        <div class="dz-hint">Aprobación + producción<br>Arrastra o haz clic para seleccionar</div>
+      </div>
+      <div class="dz-loaded-state" id="dls-cu">
+        <div class="dz-check">✓</div>
+        <div class="dz-fname" id="dfname-cu"></div>
+        <div class="dz-fsize" id="dfsize-cu"></div>
+        <button class="dz-remove" id="rm-cu">Quitar archivo</button>
+      </div>
+    </div>
+    <!-- Registro -->
+    <div class="drop-zone" id="dz-reg">
+      <input type="file" accept=".csv,.txt" id="file-reg" class="dz-input">
+      <div class="dz-idle">
+        <div class="dz-icon">🏭</div>
+        <div class="dz-badge opt">Opcional — Modo B / C</div>
+        <h3>Registro de Entrada</h3>
+        <div class="dz-hint">Verificación de fábrica<br>Arrastra o haz clic para seleccionar</div>
+      </div>
+      <div class="dz-loaded-state" id="dls-reg">
+        <div class="dz-check">✓</div>
+        <div class="dz-fname" id="dfname-reg"></div>
+        <div class="dz-fsize" id="dfsize-reg"></div>
+        <button class="dz-remove" id="rm-reg">Quitar archivo</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mode-badge hidden" id="mode-badge">
+    <div class="mb-dot"></div>
+    <span id="mode-text"></span>
+  </div>
+
+  <div class="controls-row">
+    <label>Mes:</label>
+    <select id="sel-month">
+      <option value="1">Enero</option><option value="2">Febrero</option>
+      <option value="3">Marzo</option><option value="4">Abril</option>
+      <option value="5">Mayo</option><option value="6">Junio</option>
+      <option value="7">Julio</option><option value="8">Agosto</option>
+      <option value="9">Septiembre</option><option value="10">Octubre</option>
+      <option value="11">Noviembre</option><option value="12">Diciembre</option>
+    </select>
+    <label>Año:</label>
+    <input type="number" id="inp-year" value="2026" min="2020" max="2035">
+    <div class="spacer"></div>
+    <button class="btn-primary" id="btn-generate" disabled>Generar reporte</button>
+  </div>
+
+  <div class="instructions">
+    <div class="instr-title">Instrucciones de exportación</div>
+    <div class="instr-cols">
+      <div>
+        <h5>ClickUp CSV</h5>
+        <ol>
+          <li>Abre la vista de lista con todas las tareas</li>
+          <li>Clic en "···" → Export → CSV</li>
+          <li>Incluye: Task Type, Parent Name, NO. OP, Nivel, Assignee, FIN DE DIBUJO DE APROBACIÓN, ENVÍO A FÁBRICA</li>
+          <li>Sube el archivo aquí</li>
+        </ol>
+      </div>
+      <div>
+        <h5>Registro de Entrada (Excel)</h5>
+        <ol>
+          <li>Abre el Registro de Entrada en Excel</li>
+          <li>Archivo → Guardar como → CSV (delimitado por comas)</li>
+          <li>Columnas necesarias: OP, NIVEL, ENTRADA, DISEÑADOR, DESCRIPCIÓN, CLIENTE</li>
+          <li>Sube el archivo aquí</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ REPORT SCREEN ══════════════ -->
+<div id="report-screen">
+  <div class="report-topbar">
+    <div class="report-title">
+      <h1>Wood Concept · Reporte de Diseño</h1>
+      <div class="report-sub" id="report-sub"></div>
+    </div>
+    <div class="report-actions">
+      <button class="btn-secondary" id="btn-back">← Nuevo reporte</button>
+      <button class="btn-secondary" id="btn-print">Imprimir / PDF</button>
+    </div>
+  </div>
+
+  <div class="metrics-grid" id="metrics-grid"></div>
+  <div id="val-panel-wrap"></div>
+  <div class="section-heading" id="designers-heading">Equipo de diseño</div>
+  <div id="designers-container"></div>
+
+  <div class="unassigned-section" id="unassigned-section" style="display:none">
+    <div class="section-heading">Sin asignar</div>
+    <div class="unassigned-card" id="unassigned-card"></div>
+  </div>
+
+  <div class="report-footer" id="report-footer"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════════════════════════
+const CU_MAP = {
+  'Fabian Parra':'Fabián P','Fabián Parra':'Fabián P',
+  'Luis Villamil':'Luis V',
+  'Sebastián Rubio':'Sebastian R','Sebastian Rubio':'Sebastian R',
+  'Ana Gonzalez':'Ana G','Ana González':'Ana G',
+  'JOHANA RUIZ':'Johana Ruiz','Johana Ruiz':'Johana Ruiz',
+  'Daniel Bermudez':'Daniel B','Daniel Bermúdez':'Daniel B',
+  'KARLA LISNETH DIAZ':'Karla Díaz','KARLA LISNETH DÍAZ':'Karla Díaz',
+  'Karla Diaz':'Karla Díaz','Karla Díaz':'Karla Díaz',
+};
+
+const REG_PATTERNS = [
+  {p:['fabian p','fabian parra','fabian'],          n:'Fabián P'},
+  {p:['luis v','luis villamil','luis'],              n:'Luis V'},
+  {p:['sebastian r','sebastian rubio','juan r','sebastián r','sebastián rubio'], n:'Sebastian R'},
+  {p:['johana ruiz','johana r','johana'],            n:'Johana Ruiz'},
+  {p:['ana g','ana gonzalez','ana gonzález'],        n:'Ana G'},
+  {p:['daniel b','daniel bermudez','daniel bermúdez'],n:'Daniel B'},
+  {p:['karla diaz','karla díaz','karla lisneth'],    n:'Karla Díaz'},
+];
+
+const COLORS = {
+  'Fabián P':'#185FA5','Luis V':'#3B6D11','Sebastian R':'#1D9E75',
+  'Ana G':'#533AB7','Johana Ruiz':'#c4366b','Daniel B':'#8B3A1C','Karla Díaz':'#9B5C0A',
+};
+
+const SP_MON = {ene:1,feb:2,mar:3,abr:4,may:5,jun:6,jul:7,ago:8,sep:9,oct:10,nov:11,dic:12};
+const MON_NAME = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+// ═══════════════════════════════════════════════════════════
+//  UTILS
+// ═══════════════════════════════════════════════════════════
+const norm = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+const esc  = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const fmt  = n => { if(n==null||isNaN(n))return'0'; const v=Math.round(n*10)/10; return Number.isInteger(v)?String(v):v.toFixed(1); };
+const fmtB = b => b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
+
+// ═══════════════════════════════════════════════════════════
+//  CSV PARSER
+// ═══════════════════════════════════════════════════════════
+function parseCSV(raw) {
+  if (raw.charCodeAt(0)===0xFEFF) raw=raw.slice(1);
+  raw=raw.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  const rows=[]; let row=[],field='',inQ=false;
+  for (let i=0;i<=raw.length;i++) {
+    const c=i<raw.length?raw[i]:'\n', n=raw[i+1];
+    if (inQ) {
+      if(c==='"'&&n==='"'){field+='"';i++;}
+      else if(c==='"')inQ=false;
+      else field+=c;
+    } else {
+      if(c==='"')inQ=true;
+      else if(c===','){row.push(field.trim());field='';}
+      else if(c==='\n'){
+        row.push(field.trim());field='';
+        if(row.some(f=>f!==''))rows.push(row);
+        row=[];
+      } else field+=c;
+    }
+  }
+  return rows;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DATE PARSING
+// ═══════════════════════════════════════════════════════════
+function parseCUDate(str) {
+  if(!str||!str.trim())return null;
+  str=str.trim();
+  const ci=str.indexOf(',');
+  if(ci!==-1)str=str.slice(ci+1).trim();
+  str=str.replace(/(\d+)(st|nd|rd|th)/g,'$1');
+  const d=new Date(str);
+  return isNaN(d)?null:d;
+}
+function parseRegDate(str,year) {
+  if(!str||!str.trim())return null;
+  const parts=str.trim().split('-');
+  if(parts.length<2)return null;
+  const day=parseInt(parts[0],10), mon=SP_MON[parts[1].toLowerCase().trim()];
+  if(!day||!mon)return null;
+  return new Date(year,mon-1,day);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  NAME MAPPING
+// ═══════════════════════════════════════════════════════════
+function mapCU(raw) {
+  if(!raw||!raw.trim())return null;
+  const m=raw.match(/\[([^\]]+)\]/);
+  if(!m)return null;
+  const name=m[1].trim();
+  return CU_MAP[name]||name;
+}
+function mapReg(raw) {
+  if(!raw||!raw.trim())return null;
+  const n=norm(raw);
+  for(const {p,n:name} of REG_PATTERNS)
+    if(p.some(pat=>n===pat||n.startsWith(pat)))return name;
+  return raw.trim()||null;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  OP PARSING
+// ═══════════════════════════════════════════════════════════
+function parseRegOP(raw) {
+  raw=String(raw||'').trim();
+  if(!raw)return{rawOP:raw,ops:[],combined:false};
+  const m=raw.match(/^(\d+)-(\d+)\/(\d+)$/);
+  if(m)return{rawOP:raw,ops:[`${m[1]}-${m[2]}`,`${m[1]}-${m[3]}`],combined:true};
+  return{rawOP:raw,ops:[raw],combined:false};
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PARSE CLICKUP CSV
+// ═══════════════════════════════════════════════════════════
+function parseCUCSV(rows) {
+  if(!rows.length)return[];
+  const hdr=rows[0];
+  const col=kw=>{
+    let i=hdr.findIndex(h=>norm(h)===norm(kw));
+    if(i!==-1)return i;
+    return hdr.findIndex(h=>norm(h).includes(norm(kw)));
+  };
+  const iType  =col('task type');
+  const iName  =col('task name');
+  const iPar   =col('parent name');
+  const iOP    =hdr.findIndex(h=>{const n=norm(h);return n.startsWith('no. op')||n.startsWith('no.op');});
+  const iNiv   =hdr.findIndex(h=>norm(h).startsWith('nivel'));
+  const iAsgn  =col('assignee');
+  const iFin   =hdr.findIndex(h=>norm(h).startsWith('fin de dibujo'));
+  const iEnvio =hdr.findIndex(h=>norm(h).includes('envio a fabrica'));
+  const tasks=[];
+  for(let r=1;r<rows.length;r++){
+    const row=rows[r];
+    if(iType!==-1&&norm(row[iType]||'')!=='task')continue;
+    const nRaw=iNiv!==-1?(row[iNiv]||'').trim():'';
+    const nivel=nRaw?parseFloat(nRaw):null;
+    tasks.push({
+      name:   iName !==-1?(row[iName] ||'').trim():'',
+      parent: iPar  !==-1?(row[iPar]  ||'').trim():'',
+      op:     iOP   !==-1?(row[iOP]   ||'').trim():'',
+      nivel:  (nivel!==null&&!isNaN(nivel))?nivel:null,
+      assignee:iAsgn!==-1?(row[iAsgn]||'').trim():'',
+      finDibujo:iFin!==-1?(row[iFin] ||'').trim():'',
+      envio:  iEnvio!==-1?(row[iEnvio]||'').trim():'',
+    });
+  }
+  return tasks;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PARSE REGISTRO CSV
+// ═══════════════════════════════════════════════════════════
+function parseRegCSV(rows) {
+  let hi=-1;
+  for(let i=0;i<rows.length;i++){
+    const nj=norm(rows[i].join(','));
+    if(nj.includes('nivel')&&nj.includes('op')){hi=i;break;}
+    if((nj.includes('n°')||nj.includes('no'))&&nj.includes('op')){hi=i;break;}
+  }
+  if(hi===-1)return[];
+  const hdr=rows[hi];
+  const col=kw=>{
+    let i=hdr.findIndex(h=>norm(h)===norm(kw));
+    if(i!==-1)return i;
+    return hdr.findIndex(h=>norm(h).includes(norm(kw)));
+  };
+  const iOP   =col('op');
+  const iNiv  =col('nivel');
+  const iEnt  =col('entrada');
+  const iDis  =hdr.findIndex(h=>{const n=norm(h);return n==='disenador'||n.includes('disenador');});
+  const iDesc =hdr.findIndex(h=>{const n=norm(h);return n==='descripcion'||n.includes('descripcion');});
+  const iCli  =col('cliente');
+  const entries=[];
+  for(let r=hi+1;r<rows.length;r++){
+    const row=rows[r];
+    if(!row||row.every(c=>!c||!c.trim()))continue;
+    const rawOP=iOP!==-1?(row[iOP]||'').trim():'';
+    if(!rawOP)continue;
+    const nRaw=iNiv!==-1?(row[iNiv]||'').trim():'';
+    const nivel=nRaw?parseFloat(nRaw):null;
+    const{rawOP:rOP,ops,combined}=parseRegOP(rawOP);
+    entries.push({
+      rawOP:rOP, ops, combined,
+      nivel:(nivel!==null&&!isNaN(nivel))?nivel:null,
+      entradaRaw: iEnt !==-1?(row[iEnt] ||'').trim():'',
+      designer:   iDis !==-1?(row[iDis] ||'').trim():'',
+      descripcion:iDesc!==-1?(row[iDesc]||'').trim():'',
+      cliente:    iCli !==-1?(row[iCli] ||'').trim():'',
+    });
+  }
+  return entries;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BUILD REPORT
+// ═══════════════════════════════════════════════════════════
+function buildReport(mode, cuTasks, regEntries, month, year) {
+  // Build reg lookups
+  const regMap=new Map();
+  for(const e of regEntries) for(const op of e.ops) regMap.set(op,e);
+
+  // Pre-compute validation sets for Mode B
+  let coinciden=[], soloFabrica=[], soloClickUp=[], unconfirmedOPs=new Set();
+  if(mode==='B'){
+    const regInMonth=regEntries.filter(e=>{
+      const d=parseRegDate(e.entradaRaw,year);
+      return d&&d.getMonth()+1===month&&d.getFullYear()===year;
+    });
+    const cuProdTasks=cuTasks.filter(t=>{
+      const d=parseCUDate(t.envio);
+      return d&&d.getMonth()+1===month&&d.getFullYear()===year;
+    });
+    const cuProdOPSet=new Set(cuProdTasks.map(t=>t.op).filter(Boolean));
+    const regOPSet=new Set();
+    for(const e of regInMonth){
+      const matched=e.ops.some(op=>cuProdOPSet.has(op));
+      if(matched)coinciden.push(e); else soloFabrica.push(e);
+      for(const op of e.ops) regOPSet.add(op);
+    }
+    for(const t of cuProdTasks){
+      if(!t.op||!regOPSet.has(t.op)){
+        unconfirmedOPs.add(t.op||'__'+t.name);
+        soloClickUp.push(t);
+      }
+    }
+  }
+
+  // Build designer buckets
+  const dMap=new Map();
+  const unasgn={approvals:[],productions:[],usedOPs:new Set()};
+  const getBucket=name=>{
+    if(!dMap.has(name)) dMap.set(name,{approvals:[],productions:[],usedOPs:new Set()});
+    return dMap.get(name);
+  };
+
+  if(mode!=='C'){
+    for(const t of cuTasks){
+      const reg=t.op?regMap.get(t.op):null;
+      let level=t.nivel, fromReg=false;
+      if(level===null&&mode==='B'&&reg&&reg.nivel!==null){level=reg.nivel;fromReg=true;}
+      const designer=mapCU(t.assignee);
+      const bkt=designer?getBucket(designer):unasgn;
+      // Approval
+      const dFin=parseCUDate(t.finDibujo);
+      if(dFin&&dFin.getMonth()+1===month&&dFin.getFullYear()===year){
+        bkt.approvals.push({
+          name:t.name,parent:t.parent,op:t.op,
+          level,fromReg,hasLevel:level!==null,score:level!==null?level:0,
+          unconfirmed:false,fromRegOnly:false,
+        });
+      }
+      // Production
+      const dEnv=parseCUDate(t.envio);
+      if(dEnv&&dEnv.getMonth()+1===month&&dEnv.getFullYear()===year){
+        const dedupKey=(reg&&reg.combined)?reg.rawOP:t.op;
+        if(dedupKey&&bkt.usedOPs.has(dedupKey))continue;
+        if(dedupKey)bkt.usedOPs.add(dedupKey);
+        const unconfirmed=mode==='B'&&t.op&&unconfirmedOPs.has(t.op);
+        bkt.productions.push({
+          name:t.name,parent:t.parent,op:t.op,
+          level,fromReg,hasLevel:level!==null,score:level!==null?level*1.5:0,
+          unconfirmed,fromRegOnly:false,
+        });
+      }
+    }
+    // Mode B: add soloFabrica items
+    if(mode==='B'){
+      for(const e of soloFabrica){
+        const designer=mapReg(e.designer);
+        const bkt=designer?getBucket(designer):unasgn;
+        if(bkt.usedOPs.has(e.rawOP))continue;
+        bkt.usedOPs.add(e.rawOP);
+        bkt.productions.push({
+          name:e.descripcion||('OP: '+e.rawOP),
+          parent:e.cliente||'',op:e.rawOP,
+          level:e.nivel,fromReg:true,hasLevel:e.nivel!==null,
+          score:e.nivel!==null?e.nivel*1.5:0,
+          unconfirmed:false,fromRegOnly:true,
+        });
+      }
+    }
+  } else {
+    // Mode C: Registro only
+    for(const e of regEntries){
+      const d=parseRegDate(e.entradaRaw,year);
+      if(!d||d.getMonth()+1!==month||d.getFullYear()!==year)continue;
+      const designer=mapReg(e.designer);
+      const bkt=designer?getBucket(designer):unasgn;
+      if(bkt.usedOPs.has(e.rawOP))continue;
+      bkt.usedOPs.add(e.rawOP);
+      bkt.productions.push({
+        name:e.descripcion||('OP: '+e.rawOP),
+        parent:e.cliente||'',op:e.rawOP,
+        level:e.nivel,fromReg:true,hasLevel:e.nivel!==null,
+        score:e.nivel!==null?e.nivel*1.5:0,
+        unconfirmed:false,fromRegOnly:false,
+      });
+    }
+  }
+
+  // Aggregate
+  const designers=[];
+  for(const[name,d]of dMap){
+    const aT=d.approvals.reduce((s,i)=>s+i.score,0);
+    const pT=d.productions.reduce((s,i)=>s+i.score,0);
+    const projects=[...new Set([...d.approvals,...d.productions].map(i=>i.parent).filter(Boolean))];
+    const items=new Set([...d.approvals,...d.productions].map(i=>i.name));
+    designers.push({
+      name,color:COLORS[name]||'#888',
+      approvals:d.approvals,productions:d.productions,
+      aTotal:aT,pTotal:pT,total:aT+pT,projects,itemCount:items.size,
+    });
+  }
+  designers.sort((a,b)=>b.total-a.total);
+  const n=designers.length||1;
+  const tPts=designers.reduce((s,d)=>s+d.total,0);
+  const tApr=designers.reduce((s,d)=>s+d.aTotal,0);
+  const tPrd=designers.reduce((s,d)=>s+d.pTotal,0);
+
+  return{
+    mode,designers,unassigned:unasgn,month,year,
+    validation:mode==='B'?{coinciden,soloFabrica,soloClickUp}:null,
+    metrics:{tPts,tApr,tPrd,mean:tPts/n,meanApr:tApr/n,meanPrd:tPrd/n},
+    maxTotal:designers.length?designers[0].total:1,
+    activeCount:designers.length,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════
+function itemRowHTML(item){
+  const markers=[];
+  if(item.fromRegOnly) markers.push('<span class="mark-added" title="Añadido desde Registro de Fábrica">⊕</span>');
+  if(item.unconfirmed) markers.push('<span class="mark-warn" title="No confirmado por Registro de Fábrica">⚠</span>');
+  const scoreHTML=item.hasLevel
+    ? fmt(item.score)+(item.fromReg?'&thinsp;<span class="mark-fallback">†</span>':'')
+    : '—&ensp;<span style="color:var(--faint);font-size:11px">(sin nivel)</span>';
+  return`<div class="item-row">
+    <div class="item-info">
+      <div class="item-name${item.hasLevel?'':' no-level'}">${markers.join('')}${esc(item.name)}</div>
+      ${item.parent?`<div class="item-project">${esc(item.parent)}</div>`:''}
+      ${item.op?`<div class="item-op">${esc(item.op)}</div>`:''}
+    </div>
+    <div class="item-score${item.hasLevel?'':' no-level'}">${scoreHTML}</div>
+  </div>`;
+}
+
+function designerCardHTML(d,mean,maxTotal,mode){
+  const pct=maxTotal>0?(d.total/maxTotal)*100:0;
+  const mPct=maxTotal>0?Math.min((mean/maxTotal)*100,100):0;
+  const isAbove=d.total>mean+0.001, isBelow=d.total<mean-0.001;
+  const pc=isAbove?'pill-above':isBelow?'pill-below':'pill-neutral';
+  const arrow=isAbove?' ↑':isBelow?' ↓':'';
+  const tags=d.projects.map(p=>`<span class="project-tag">${esc(p)}</span>`).join('');
+  const showApproval=mode!=='C';
+  const aRows=d.approvals.length?d.approvals.map(i=>itemRowHTML(i)).join(''):'<div class="col-empty">Sin planos este mes</div>';
+  const pRows=d.productions.length?d.productions.map(i=>itemRowHTML(i)).join(''):'<div class="col-empty">Sin planos este mes</div>';
+  return`<div class="designer-card">
+  <div class="card-header">
+    <div class="card-top">
+      <div class="designer-dot" style="background:${d.color}"></div>
+      <div class="designer-name">${esc(d.name)}</div>
+      <div class="pills">
+        ${showApproval?`<span class="pill pill-aprob">${fmt(d.aTotal)} aprob</span>`:''}
+        <span class="pill pill-prod">${fmt(d.pTotal)} prod</span>
+        <span class="pill ${pc}">${fmt(d.total)} pts${arrow}</span>
+      </div>
+    </div>
+    <div class="bar-wrap">
+      <div class="bar-track"><div class="bar-fill" style="width:${pct.toFixed(1)}%;background:${d.color}"></div></div>
+      ${mPct>0?`<div class="bar-tick" style="left:${mPct.toFixed(1)}%"></div><div class="bar-tick-label" style="left:${mPct.toFixed(1)}%">media</div>`:''}
+    </div>
+    <div class="project-tags">${tags}</div>
+    <div class="card-stats">${d.itemCount} ítem${d.itemCount!==1?'s':''} · ${d.projects.length} proyecto${d.projects.length!==1?'s':''}</div>
+  </div>
+  <div class="card-body${showApproval?'':' single-col'}">
+    ${showApproval?`<div class="item-col">
+      <div class="col-heading"><div class="col-dot" style="background:var(--aprob-text)"></div><span style="color:var(--aprob-text)">Planos de aprobación</span></div>
+      ${aRows}
+      ${d.approvals.length?`<div class="col-subtotal"><span>Subtotal</span><span>${fmt(d.aTotal)} pts</span></div>`:''}
+    </div>`:''}
+    <div class="item-col">
+      <div class="col-heading"><div class="col-dot" style="background:var(--prod-text)"></div><span style="color:var(--prod-text)">Planos de producción</span></div>
+      ${pRows}
+      ${d.productions.length?`<div class="col-subtotal"><span>Subtotal</span><span>${fmt(d.pTotal)} pts</span></div>`:''}
+    </div>
+  </div>
+</div>`;
+}
+
+function validationPanelHTML(v, month, year){
+  const total=v.coinciden.length+v.soloFabrica.length;
+  const confirmed=v.coinciden.length;
+  const summaryText=`${confirmed} de ${total} ítem${total!==1?'s':''} de fábrica confirmados en ClickUp`;
+  const mkRegItem=e=>`<div class="val-item">${esc(e.descripcion||e.rawOP)}<span class="val-item-op">${esc(e.rawOP)}${e.designer?' · '+esc(e.designer):''}</span></div>`;
+  const mkCUItem=t=>`<div class="val-item">${esc(t.name||t.op)}<span class="val-item-op">${esc(t.op)}${t.assignee?' · '+esc(t.assignee):''}</span></div>`;
+  const coiHTML=v.coinciden.length?v.coinciden.map(mkRegItem).join(''):'<div class="val-empty">—</div>';
+  const fabHTML=v.soloFabrica.length?v.soloFabrica.map(mkRegItem).join(''):'<div class="val-empty">Ninguno</div>';
+  const cuHTML =v.soloClickUp.length?v.soloClickUp.map(mkCUItem).join(''):'<div class="val-empty">Ninguno</div>';
+  return`<div class="val-panel" id="val-panel">
+  <div class="val-header" onclick="toggleVal()">
+    <div class="val-header-left">
+      <div class="val-title-text">Verificación de producción — ${MON_NAME[month]} ${year}</div>
+      <div class="val-summary-pill">${summaryText}</div>
+    </div>
+    <button class="val-toggle-btn" id="val-btn">▲ Colapsar</button>
+  </div>
+  <div id="val-body" class="val-body">
+    <div class="val-sections">
+      <div class="val-section">
+        <div class="val-sec-title green">✓ Coinciden (${v.coinciden.length})</div>
+        ${coiHTML}
+      </div>
+      <div class="val-section">
+        <div class="val-sec-title amber">⊕ Solo en fábrica (${v.soloFabrica.length})</div>
+        <div style="font-size:11px;color:var(--added);margin-bottom:8px">Agregados al reporte automáticamente</div>
+        ${fabHTML}
+      </div>
+      <div class="val-section">
+        <div class="val-sec-title amber">⚠ Solo en ClickUp (${v.soloClickUp.length})</div>
+        <div style="font-size:11px;color:var(--warn);margin-bottom:8px">No confirmados por fábrica</div>
+        ${cuHTML}
+      </div>
+    </div>
+  </div>
+</div>`;
+}
+
+let valOpen=true;
+function toggleVal(){
+  valOpen=!valOpen;
+  const body=document.getElementById('val-body');
+  const btn=document.getElementById('val-btn');
+  if(body){body.style.display=valOpen?'':'none';}
+  if(btn){btn.textContent=valOpen?'▲ Colapsar':'▼ Expandir';}
+}
+
+function renderReport(report, cuFile, regFile){
+  const{mode,designers,unassigned,validation,metrics,maxTotal,activeCount,month,year}=report;
+  const modeLbl=mode==='A'?'Modo A · Solo ClickUp':mode==='B'?'Modo B · ClickUp + Fábrica':'Modo C · Solo Fábrica';
+  const ts=new Date().toLocaleString('es',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  const files=[cuFile,regFile].filter(Boolean).join(' · ');
+  document.getElementById('report-sub').innerHTML=
+    `${MON_NAME[month]} ${year} &nbsp;·&nbsp; ${modeLbl} &nbsp;·&nbsp; ${files}<br><span style="color:var(--faint)">Generado el ${ts}</span>`;
+
+  // Metrics
+  const noteA=mode==='A'?'<div class="metric-note">Sin verificación de fábrica</div>':'';
+  const noteC=mode==='C'?'<div class="metric-note">Solo producción</div>':'';
+  document.getElementById('metrics-grid').innerHTML=[
+    {l:'Puntos totales',       v:fmt(metrics.tPts),  s:`${activeCount} diseñadores activos`,  x:noteA+noteC},
+    {l:'Puntos aprobación',    v:fmt(metrics.tApr),  s:'Planos de aprobación',                x:''},
+    {l:'Puntos producción',    v:fmt(metrics.tPrd),  s:'Planos de producción',                x:''},
+    {l:'Media total',          v:fmt(metrics.mean),  s:'Total ÷ diseñadores activos',         x:''},
+    {l:'Media aprobación',     v:fmt(metrics.meanApr),s:'Por diseñador',                      x:''},
+    {l:'Media producción',     v:fmt(metrics.meanPrd),s:'Por diseñador',                      x:''},
+  ].map(c=>`<div class="metric-card"><div class="metric-label">${c.l}</div><div class="metric-value">${c.v}</div><div class="metric-sub">${c.s}</div>${c.x}</div>`).join('');
+
+  // Validation panel
+  valOpen=true;
+  const vpWrap=document.getElementById('val-panel-wrap');
+  vpWrap.innerHTML=validation?validationPanelHTML(validation,month,year):'';
+
+  // Designer heading
+  document.getElementById('designers-heading').textContent=
+    mode==='C'?'Equipo de diseño — Producción':'Equipo de diseño';
+
+  // Designer cards
+  const cont=document.getElementById('designers-container');
+  cont.innerHTML=designers.length
+    ?designers.map(d=>designerCardHTML(d,metrics.mean,maxTotal,mode)).join('')
+    :'<p style="font-size:14px;color:var(--muted)">No se encontraron datos para el mes seleccionado.</p>';
+
+  // Unassigned
+  const uSec=document.getElementById('unassigned-section');
+  const uCard=document.getElementById('unassigned-card');
+  const uTotal=unassigned.approvals.length+unassigned.productions.length;
+  if(!uTotal){uSec.style.display='none';}
+  else{
+    uSec.style.display='block';
+    const showApr=mode!=='C';
+    uCard.innerHTML=`<div class="unassigned-label">Ítems sin diseñador asignado</div>
+    <div class="unassigned-grid">
+      ${showApr?`<div>${unassigned.approvals.length?`<div class="col-heading" style="margin-bottom:8px"><span style="color:var(--muted)">Aprobación (${unassigned.approvals.length})</span></div>${unassigned.approvals.map(i=>itemRowHTML(i)).join('')}`:'<div class="col-empty">—</div>'}</div>`:''}
+      <div>${unassigned.productions.length?`<div class="col-heading" style="margin-bottom:8px"><span style="color:var(--muted)">Producción (${unassigned.productions.length})</span></div>${unassigned.productions.map(i=>itemRowHTML(i)).join('')}`:'<div class="col-empty">—</div>'}</div>
+    </div>`;
+  }
+
+  // Footer
+  document.getElementById('report-footer').innerHTML=`
+    <strong>Leyenda de puntuación</strong><br>
+    Plano de aprobación = nivel × 1 &nbsp;·&nbsp; Plano de producción = nivel × 1.5
+    <div class="legend-row">
+      <div class="legend-item"><span class="mark-fallback" style="font-size:13px">†</span> Nivel tomado del Registro de Fábrica — actualizar en ClickUp</div>
+      <div class="legend-item"><span class="mark-added" style="font-size:13px">⊕</span> Ítem añadido desde Registro, no encontrado en ClickUp</div>
+      <div class="legend-item"><span class="mark-warn" style="font-size:13px">⚠</span> Ítem en ClickUp no confirmado por Registro de Fábrica</div>
+      <div class="legend-item"><span style="color:var(--faint);font-size:12px;font-style:italic">— (sin nivel)</span> No suma puntos</div>
+    </div>`;
+
+  document.getElementById('upload-screen').style.display='none';
+  document.getElementById('report-screen').style.display='block';
+  window.scrollTo(0,0);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  APP STATE
+// ═══════════════════════════════════════════════════════════
+const state={cuText:null,cuFile:'',cuSize:0,regText:null,regFile:'',regSize:0};
+
+function getMode(){
+  if(state.cuText&&state.regText)return'B';
+  if(state.cuText)return'A';
+  if(state.regText)return'C';
+  return null;
+}
+
+function updateUI(){
+  const mode=getMode();
+  document.getElementById('btn-generate').disabled=!mode;
+  const badge=document.getElementById('mode-badge');
+  const mtext=document.getElementById('mode-text');
+  if(!mode){badge.className='mode-badge hidden';return;}
+  badge.className='mode-badge mode-'+mode.toLowerCase();
+  mtext.innerHTML=mode==='A'
+    ?'<strong>Modo A</strong> · Solo ClickUp — aprobación y producción, sin verificación de fábrica'
+    :mode==='B'
+    ?'<strong>Modo B</strong> · ClickUp + Registro de Fábrica — reporte completo con verificación cruzada'
+    :'<strong>Modo C</strong> · Solo Registro de Fábrica — reporte de producción únicamente';
+}
+
+function showError(msg){
+  const el=document.getElementById('error-banner');
+  el.textContent=msg; el.style.display=msg?'block':'none';
+}
+
+function loadFile(file,isCU){
+  if(!file)return;
+  const r=new FileReader();
+  r.onload=e=>{
+    if(isCU){state.cuText=e.target.result;state.cuFile=file.name;state.cuSize=file.size;}
+    else{state.regText=e.target.result;state.regFile=file.name;state.regSize=file.size;}
+    const dzId=isCU?'dz-cu':'dz-reg';
+    const dls=document.getElementById(isCU?'dls-cu':'dls-reg');
+    document.getElementById(isCU?'dfname-cu':'dfname-reg').textContent=file.name;
+    document.getElementById(isCU?'dfsize-cu':'dfsize-reg').textContent=fmtB(file.size);
+    document.getElementById(dzId).classList.add('loaded');
+    updateUI();
+  };
+  r.readAsText(file,'UTF-8');
+}
+
+function removeFile(isCU){
+  if(isCU){state.cuText=null;state.cuFile='';state.cuSize=0;}
+  else{state.regText=null;state.regFile='';state.regSize=0;}
+  const dzId=isCU?'dz-cu':'dz-reg';
+  const dz=document.getElementById(dzId);
+  dz.classList.remove('loaded');
+  const inp=dz.querySelector('.dz-input');
+  if(inp)inp.value='';
+  updateUI();
+}
+
+// File inputs
+document.getElementById('file-cu').addEventListener('change',e=>loadFile(e.target.files[0],true));
+document.getElementById('file-reg').addEventListener('change',e=>loadFile(e.target.files[0],false));
+
+// Remove buttons
+document.getElementById('rm-cu').addEventListener('click',e=>{e.stopPropagation();removeFile(true);});
+document.getElementById('rm-reg').addEventListener('click',e=>{e.stopPropagation();removeFile(false);});
+
+// Drag & drop
+['dz-cu','dz-reg'].forEach(id=>{
+  const el=document.getElementById(id), isCU=id==='dz-cu';
+  el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('drag-over');});
+  el.addEventListener('dragleave',()=>el.classList.remove('drag-over'));
+  el.addEventListener('drop',e=>{
+    e.preventDefault();el.classList.remove('drag-over');
+    const f=e.dataTransfer.files[0];if(f)loadFile(f,isCU);
+  });
+});
+
+// Generate
+document.getElementById('btn-generate').addEventListener('click',()=>{
+  showError('');
+  try{
+    const month=parseInt(document.getElementById('sel-month').value,10);
+    const year =parseInt(document.getElementById('inp-year').value,10);
+    const mode =getMode();
+    if(!mode)return;
+    const cuTasks =state.cuText?parseCUCSV(parseCSV(state.cuText)):[];
+    const regEntries=state.regText?parseRegCSV(parseCSV(state.regText)):[];
+    const report=buildReport(mode,cuTasks,regEntries,month,year);
+    renderReport(report,state.cuFile,state.regFile);
+  }catch(err){
+    showError('Error al procesar los archivos: '+err.message);
+    console.error(err);
+  }
+});
+
+// Back / Print
+document.getElementById('btn-back').addEventListener('click',()=>{
+  document.getElementById('report-screen').style.display='none';
+  document.getElementById('upload-screen').style.display='block';
+  window.scrollTo(0,0);
+});
+document.getElementById('btn-print').addEventListener('click',()=>window.print());
+
+// Default month/year
+(()=>{const n=new Date();document.getElementById('sel-month').value=n.getMonth()+1;document.getElementById('inp-year').value=n.getFullYear();})();
+</script>
+</body>
+</html>

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wood Concept · Reporte de Diseño</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- ══════════════ NAVIGATION ══════════════ -->
+  <nav class="app-nav">
+    <div class="nav-brand">
+      <span class="brand-name">Wood Concept</span>
+      <span class="brand-sep">·</span>
+      <span class="brand-sub">Reporte de Diseño</span>
+    </div>
+    <div class="nav-links">
+      <button class="nav-btn active" data-screen="upload">Inicio</button>
+      <button class="nav-btn" data-screen="report" id="nav-btn-report" disabled>Reporte mensual</button>
+      <button class="nav-btn" data-screen="dashboard">Dashboard histórico</button>
+      <button class="nav-btn" data-screen="compare">Comparar meses</button>
+      <button class="nav-btn" data-screen="workload">Carga de Trabajo (PC)</button>
+    </div>
+    <div class="nav-saved" id="nav-saved"></div>
+  </nav>
+
+  <div class="app-body">
+
+    <!-- ══════════════ SCREEN 1: UPLOAD ══════════════ -->
+    <div id="screen-upload" class="screen screen-active">
+      <div class="upload-wrap">
+
+        <div class="upload-header">
+          <h1>Wood Concept · Reporte de Diseño</h1>
+          <p>Sube uno o ambos archivos CSV para generar el reporte del mes</p>
+        </div>
+
+        <div id="error-banner" class="error-banner"></div>
+
+        <div class="drop-zones">
+
+          <!-- Left column: mode toggle + CSV or API panel -->
+          <div id="dz-left">
+
+            <!-- Mode toggle -->
+            <div class="mode-toggle" id="mode-toggle">
+              <button class="mode-toggle-btn active" id="mode-toggle-csv" data-mode="csv">Subir CSV</button>
+              <button class="mode-toggle-btn"        id="mode-toggle-api" data-mode="api">Conectar ClickUp</button>
+            </div>
+
+            <!-- CSV panel (default) -->
+            <div id="dz-left-csv">
+              <div class="drop-zone" id="dz-cu">
+                <input type="file" accept=".csv,.txt" id="file-cu" class="dz-input">
+                <div class="dz-idle">
+                  <div class="dz-icon">📋</div>
+                  <span class="dz-badge req">Requerido para Modo A / B</span>
+                  <h3>ClickUp CSV</h3>
+                  <div class="dz-hint">Aprobación + producción<br>Arrastra o haz clic</div>
+                </div>
+                <div class="dz-loaded-state" id="dls-cu">
+                  <div class="dz-check">✓</div>
+                  <div class="dz-fname" id="dfname-cu"></div>
+                  <div class="dz-fsize" id="dfsize-cu"></div>
+                  <button class="dz-remove" id="rm-cu">Quitar archivo</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- API panel (hidden by default) -->
+            <div id="dz-left-api" style="display:none">
+              <div class="cu-api-card">
+                <div class="cu-api-icon">🔗</div>
+                <div class="cu-api-title">ClickUp API</div>
+                <div class="cu-api-desc">Carga las tareas activas directamente desde tu lista de ClickUp.</div>
+                <label class="cu-api-label" for="cu-api-key">API Token</label>
+                <input type="password" id="cu-api-key" class="cu-list-input" placeholder="pk_xxxxxxxxxxxxxxxx" autocomplete="off">
+                <label class="cu-api-label" for="cu-list-id">ID — lista, carpeta o espacio</label>
+                <input type="text" id="cu-list-id" class="cu-list-input" placeholder="ej. 901234567890">
+                <div class="cu-list-hint">Acepta cualquier ID de ClickUp. En la app: clic derecho sobre el espacio, carpeta o lista → <b>Copiar enlace</b> → el ID es el número al final.</div>
+                <button class="btn-primary cu-sync-btn" id="cu-sync-btn">↻ Sincronizar</button>
+                <div id="cu-sync-status" class="cu-sync-status"></div>
+              </div>
+            </div>
+
+          </div><!-- #dz-left -->
+
+          <!-- Right column: Registro de Entrada (always visible) -->
+          <div class="drop-zone" id="dz-reg">
+            <input type="file" accept=".csv,.txt" id="file-reg" class="dz-input">
+            <div class="dz-idle">
+              <div class="dz-icon">🏭</div>
+              <span class="dz-badge opt">Opcional — Modo B / C</span>
+              <h3>Registro de Entrada</h3>
+              <div class="dz-hint">Verificación de fábrica<br>Arrastra o haz clic</div>
+            </div>
+            <div class="dz-loaded-state" id="dls-reg">
+              <div class="dz-check">✓</div>
+              <div class="dz-fname" id="dfname-reg"></div>
+              <div class="dz-fsize" id="dfsize-reg"></div>
+              <button class="dz-remove" id="rm-reg">Quitar archivo</button>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="mode-badge hidden" id="mode-badge">
+          <div class="mb-dot"></div>
+          <span id="mode-text"></span>
+        </div>
+
+        <div class="controls-row">
+          <label>Mes:</label>
+          <select id="sel-month">
+            <option value="1">Enero</option><option value="2">Febrero</option>
+            <option value="3">Marzo</option><option value="4">Abril</option>
+            <option value="5">Mayo</option><option value="6">Junio</option>
+            <option value="7">Julio</option><option value="8">Agosto</option>
+            <option value="9">Septiembre</option><option value="10">Octubre</option>
+            <option value="11">Noviembre</option><option value="12">Diciembre</option>
+          </select>
+          <label>Año:</label>
+          <input type="number" id="inp-year" value="2026" min="2020" max="2035">
+          <div class="spacer"></div>
+          <button class="btn-primary" id="btn-generate" disabled>Generar reporte</button>
+        </div>
+
+        <div id="saved-months-panel" class="saved-months-panel"></div>
+
+        <div class="instructions">
+          <div class="instr-title">Instrucciones de exportación</div>
+          <div class="instr-cols">
+            <div>
+              <h5>ClickUp CSV</h5>
+              <ol>
+                <li>Abre la vista de lista con todas las tareas</li>
+                <li>Clic en "···" → Export → CSV</li>
+                <li>Incluye: Task Type, Parent Name, NO. OP, Nivel, Assignee, FIN DE DIBUJO DE APROBACIÓN, ENVÍO A FÁBRICA</li>
+                <li>Sube el archivo aquí</li>
+              </ol>
+            </div>
+            <div>
+              <h5>Registro de Entrada (Excel)</h5>
+              <ol>
+                <li>Abre el Registro de Entrada en Excel</li>
+                <li>Archivo → Guardar como → CSV (delimitado por comas)</li>
+                <li>Columnas: OP, NIVEL, ENTRADA, DISEÑADOR, DESCRIPCIÓN, CLIENTE</li>
+                <li>Sube el archivo aquí</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══════════════ SCREEN 2: MONTHLY REPORT ══════════════ -->
+    <div id="screen-report" class="screen">
+      <div class="report-wrap">
+        <div class="report-topbar">
+          <div class="report-title">
+            <h1>Wood Concept · Reporte de Diseño</h1>
+            <div class="report-sub" id="report-sub"></div>
+          </div>
+          <div class="report-actions">
+            <button class="btn-secondary" id="btn-back-upload">← Nuevo</button>
+            <button class="btn-secondary" id="btn-save-report">💾 Guardar reporte</button>
+            <button class="btn-secondary" id="btn-go-dashboard">Ver dashboard →</button>
+            <button class="btn-secondary" onclick="window.print()">Imprimir / PDF</button>
+          </div>
+        </div>
+
+        <div class="metrics-grid" id="metrics-grid"></div>
+        <div id="val-panel-wrap"></div>
+        <div class="section-heading" id="designers-heading">Equipo de diseño</div>
+        <div id="team-summary"></div>
+        <div id="designers-container"></div>
+
+        <div id="unassigned-section" style="display:none">
+          <div class="section-heading">Sin asignar</div>
+          <div class="unassigned-card" id="unassigned-card"></div>
+        </div>
+
+        <div class="report-footer" id="report-footer"></div>
+      </div>
+    </div>
+
+    <!-- ══════════════ SCREEN 3: HISTORICAL DASHBOARD ══════════════ -->
+    <div id="screen-dashboard" class="screen">
+      <div class="dashboard-wrap">
+
+        <div class="dash-header">
+          <div>
+            <h1>Dashboard histórico</h1>
+            <p class="dash-sub" id="dash-sub"></p>
+          </div>
+        </div>
+
+        <div id="dash-no-data" class="dash-empty" style="display:none">
+          <div class="empty-icon">📊</div>
+          <p>No hay reportes guardados todavía.</p>
+          <p>Genera y guarda reportes mensuales para ver el histórico.</p>
+        </div>
+
+        <div id="dash-content">
+          <div class="dash-tabs" id="dash-tabs">
+            <button class="dash-tab active" data-panel="trend">📈 Tendencia</button>
+            <button class="dash-tab" data-panel="composition">📊 Composición</button>
+            <button class="dash-tab" data-panel="scatter">⚡ Volumen vs Complejidad</button>
+            <button class="dash-tab" data-panel="ranking">🏅 Ranking</button>
+            <button class="dash-tab" data-panel="heatmap">🔥 Heatmap</button>
+            <button class="dash-tab" data-panel="velocidad">🚀 Velocidad</button>
+            <button class="dash-tab" data-panel="calidad">✦ Calidad</button>
+          </div>
+
+          <!-- Panel A: Trend -->
+          <div id="panel-trend" class="dash-panel">
+            <div class="panel-controls" id="trend-controls"></div>
+            <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
+          </div>
+
+          <!-- Panel B: Composition -->
+          <div id="panel-composition" class="dash-panel" style="display:none">
+            <div class="panel-controls" id="comp-controls"></div>
+            <div class="chart-wrap"><canvas id="chart-composition"></canvas></div>
+          </div>
+
+          <!-- Panel C: Scatter -->
+          <div id="panel-scatter" class="dash-panel" style="display:none">
+            <div class="panel-controls" id="scatter-controls"></div>
+            <div class="chart-wrap"><canvas id="chart-scatter"></canvas></div>
+          </div>
+
+          <!-- Panel D: Ranking -->
+          <div id="panel-ranking" class="dash-panel" style="display:none">
+            <div id="ranking-wrap"></div>
+          </div>
+
+          <!-- Panel E: Heatmap -->
+          <div id="panel-heatmap" class="dash-panel" style="display:none">
+            <div id="heatmap-wrap"></div>
+            <div id="heatmap-detail" class="heatmap-detail" style="display:none"></div>
+          </div>
+
+          <!-- Panel F: Velocidad del equipo -->
+          <div id="panel-velocidad" class="dash-panel" style="display:none">
+            <div class="chart-wrap"><canvas id="chart-velocidad"></canvas></div>
+          </div>
+
+          <!-- Panel G: Calidad de entrega -->
+          <div id="panel-calidad" class="dash-panel" style="display:none">
+            <div class="chart-wrap"><canvas id="chart-calidad"></canvas></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══════════════ SCREEN 4: COMPARE MONTHS ══════════════ -->
+    <div id="screen-compare" class="screen">
+      <div class="compare-wrap">
+
+        <div class="compare-header">
+          <h1>Comparar meses</h1>
+          <p>Selecciona 2 a 4 meses guardados para comparar lado a lado</p>
+        </div>
+
+        <div id="compare-no-data" class="dash-empty" style="display:none">
+          <div class="empty-icon">📅</div>
+          <p>Necesitas al menos 2 reportes guardados para comparar.</p>
+        </div>
+
+        <div id="compare-picker" class="compare-picker"></div>
+
+        <div id="compare-content" style="display:none">
+          <div class="dash-tabs">
+            <button class="dash-tab active" data-ctab="radar">🕸 Radar por diseñador</button>
+            <button class="dash-tab" data-ctab="bars">📊 Barras comparativas</button>
+            <button class="dash-tab" data-ctab="delta">Δ Tabla de deltas</button>
+          </div>
+          <div id="ctab-radar" class="compare-tab-panel">
+            <div id="radar-grid" class="radar-grid"></div>
+          </div>
+          <div id="ctab-bars" class="compare-tab-panel" style="display:none">
+            <div class="chart-wrap"><canvas id="chart-compare-bars"></canvas></div>
+          </div>
+          <div id="ctab-delta" class="compare-tab-panel" style="display:none">
+            <div id="delta-wrap"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══════════════ SCREEN 5: WORKLOAD ══════════════ -->
+    <div id="screen-workload" class="screen">
+      <div class="workload-wrap">
+        <div class="workload-header">
+          <h1>Carga de Trabajo</h1>
+          <p class="dash-sub">Puntos de complejidad (PC) activos por diseñador</p>
+        </div>
+        <div id="wl-body"></div>
+      </div>
+    </div>
+
+  </div><!-- .app-body -->
+
+  <!-- Shared floating tooltip -->
+  <div id="chart-tooltip" class="chart-tooltip"></div>
+
+  <!-- Firebase SDK (compat — works with plain script tags) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <!-- jsPDF (client-side PDF generation for workload tab) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <!-- Scripts — load order matters -->
+  <script src="js/config.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/parser.js"></script>
+  <script src="js/scoring.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/report.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/compare.js"></script>
+  <script src="js/workload.js"></script>
+  <script src="js/clickup.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
