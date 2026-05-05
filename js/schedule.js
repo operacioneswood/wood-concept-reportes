@@ -7,14 +7,20 @@
 // ─────────────────────────────────────────────────────────────
 
 const Schedule = {
-  _cuRows:   null,
-  _rawTasks: null,
-  _fieldIds: null,
-  _items:    [],
-  _view:     'gantt',
-  _cfg:      null,
+  _cuRows:      null,
+  _rawTasks:    null,
+  _fieldIds:    null,
+  _items:       [],
+  _view:        'gantt',
+  _cfg:         null,
+  _mainView:    'cronograma',   // 'cronograma' | 'asignacion'
+  _asignDraft:  null,           // Map: taskId → draft change (lazy-init)
+  _userIdMap:   {},             // display name → ClickUp numeric user ID
+  _apiTasks:    [],             // flat task list for Asignación view (API mode)
+  _unloadHandler: null,         // stored beforeunload ref for cleanup
 
-  SCHED_KEY: 'wc_sched_cfg',
+  SCHED_KEY:   'wc_sched_cfg',
+  USER_ID_KEY: 'wc_user_ids',
   SR_LIST:   ['Ana G', 'Johana Ruiz', 'Daniel B', 'Karla Díaz'],
   JR_LIST:   ['Fabián P', 'Sebastian R', 'Luis V'],
 
@@ -39,6 +45,7 @@ const Schedule = {
   render(cuRows) {
     if (cuRows !== undefined) this._cuRows = cuRows;
     this._loadConfig();
+    this._loadUserIds();
     if (this._cuRows) this._items = this._parseCSV(this._cuRows);
     this._purgeOldPC();
     this._renderAll();
@@ -48,6 +55,7 @@ const Schedule = {
     if (rawTasks !== undefined) this._rawTasks = rawTasks;
     if (fieldIds  !== undefined) this._fieldIds  = fieldIds;
     this._loadConfig();
+    this._loadUserIds();
     if (this._rawTasks) this._items = this._parseAPI(this._rawTasks, this._fieldIds);
     this._purgeOldPC();
     this._renderAll();
@@ -185,16 +193,28 @@ const Schedule = {
       return !isNaN(n) && n > 0 ? new Date(n) : null;
     };
 
+    // Reset _apiTasks each parse
+    this._apiTasks = [];
+
     const items = [];
     for (const t of (rawTasks || [])) {
       const rawStatus = normStr(t.status?.status || '');
       if (!ACTIVE.has(rawStatus)) continue;
 
-      const designers = (t.assignees || [])
-        .map(a => (a.username || a.name || '').trim())
-        .filter(Boolean)
-        .map(n => { const f = normStr(n.split(' ')[0]); return CU_EXCLUDE.has(f) ? null : (CU_MAP[n] || n); })
-        .filter(Boolean);
+      // Map raw assignees → display names, and capture userId per name
+      const designers = [];
+      for (const a of (t.assignees || [])) {
+        const rawName = (a.username || a.name || '').trim();
+        if (!rawName) continue;
+        const first = normStr(rawName.split(' ')[0]);
+        if (CU_EXCLUDE.has(first)) continue;
+        const displayName = CU_MAP[rawName] || rawName;
+        designers.push(displayName);
+        // Store userId for later ClickUp PUT calls (keep first seen, don't overwrite)
+        if (a.id && !this._userIdMap[displayName]) {
+          this._userIdMap[displayName] = a.id;
+        }
+      }
       if (!designers.length) continue;
 
       const nivRaw   = _cuFieldVal(t, fids.nivel);
@@ -209,6 +229,17 @@ const Schedule = {
       const aprobado        = toDate(_cuFieldVal(t, fids.aprobado));
       const envioFabrica    = toDate(_cuFieldVal(t, fids.envio));
 
+      // Flat task record for Asignación view
+      this._apiTasks.push({
+        taskId:       t.id,
+        name:         t.name || '',
+        project:      parent,
+        nivel,
+        status:       rawStatus,
+        pending:      isPending,
+        allDesigners: designers,
+      });
+
       for (const designer of designers) {
         items.push({
           id:  `${t.name || ''}|${parent}`,
@@ -219,6 +250,8 @@ const Schedule = {
           pending:         isPending,
           corrections:     parseInt(corrRaw || '0') || 0,
           designer,
+          taskId:          t.id,
+          allDesigners:    designers,
           fechaInicio,
           finDibujo,
           envioAprobacion,
@@ -227,6 +260,9 @@ const Schedule = {
         });
       }
     }
+
+    // Persist updated userId map
+    this._saveUserIds();
     return items;
   },
 
@@ -420,6 +456,12 @@ const Schedule = {
     const body = document.getElementById('sched-body');
     if (!body) return;
 
+    // Remove any pending beforeunload listener from Asignación view
+    if (this._unloadHandler) {
+      window.removeEventListener('beforeunload', this._unloadHandler);
+      this._unloadHandler = null;
+    }
+
     const hasSource = this._cuRows || this._rawTasks;
     if (!hasSource) {
       body.innerHTML = `<div class="wl-prompt">
@@ -429,6 +471,50 @@ const Schedule = {
       return;
     }
 
+    // Lazy-init draft map
+    if (!this._asignDraft) this._asignDraft = new Map();
+
+    // Top-level pills — only available in API mode (task IDs required for PUT calls)
+    if (this._rawTasks) {
+      body.innerHTML = `
+        <div class="asign-main-tabs">
+          <button class="asign-main-tab ${this._mainView === 'cronograma' ? 'active' : ''}" data-main="cronograma">📊 Cronograma</button>
+          <button class="asign-main-tab ${this._mainView === 'asignacion' ? 'active' : ''}" data-main="asignacion">👥 Asignación</button>
+        </div>
+        <div id="sched-main-area"></div>`;
+
+      body.querySelectorAll('.asign-main-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (btn.dataset.main === this._mainView) return;
+          if (this._asignDraft.size > 0 && btn.dataset.main !== 'asignacion') {
+            if (!confirm('Tienes cambios de asignación sin guardar. ¿Salir de todos modos?')) return;
+            this._asignDraft.clear();
+          }
+          this._mainView = btn.dataset.main;
+          body.querySelectorAll('.asign-main-tab').forEach(b =>
+            b.classList.toggle('active', b.dataset.main === this._mainView));
+          this._renderViewArea(document.getElementById('sched-main-area'));
+        });
+      });
+
+      this._renderViewArea(document.getElementById('sched-main-area'));
+    } else {
+      // CSV mode — only Cronograma, no pills
+      this._mainView = 'cronograma';
+      this._renderCronograma(body);
+    }
+  },
+
+  _renderViewArea(area) {
+    if (!area) return;
+    if (this._mainView === 'asignacion') {
+      this._renderAsignacion(area);
+    } else {
+      this._renderCronograma(area);
+    }
+  },
+
+  _renderCronograma(container) {
     const pairs       = this._getPairs();
     const pairResults = pairs.map(pair => {
       const pairKey  = `${pair.sr}|${pair.jr || ''}`;
@@ -438,7 +524,7 @@ const Schedule = {
       return { pair, pairKey, items: ordered, timeline };
     });
 
-    body.innerHTML = `
+    container.innerHTML = `
       <div class="sched-toolbar">
         <div class="sched-view-tabs">
           <button class="sched-tab ${this._view === 'gantt'          ? 'active' : ''}" data-view="gantt">📊 Gantt</button>
@@ -450,10 +536,10 @@ const Schedule = {
       <div id="sched-cfg-panel" style="display:none"></div>
       <div id="sched-content"></div>`;
 
-    body.querySelectorAll('.sched-tab').forEach(btn => {
+    container.querySelectorAll('.sched-tab').forEach(btn => {
       btn.addEventListener('click', () => {
         this._view = btn.dataset.view;
-        body.querySelectorAll('.sched-tab').forEach(b =>
+        container.querySelectorAll('.sched-tab').forEach(b =>
           b.classList.toggle('active', b.dataset.view === this._view));
         this._renderContent(document.getElementById('sched-content'), pairResults);
       });
@@ -994,6 +1080,300 @@ const Schedule = {
         <tbody>${rows.join('')}</tbody>
       </table>
     </div>`;
+  },
+
+  // ── User ID persistence ────────────────────────────────────
+
+  _loadUserIds() {
+    try {
+      const raw = localStorage.getItem(this.USER_ID_KEY);
+      if (raw) this._userIdMap = JSON.parse(raw) || {};
+    } catch (_) {}
+  },
+
+  _saveUserIds() {
+    try {
+      localStorage.setItem(this.USER_ID_KEY, JSON.stringify(this._userIdMap));
+    } catch (_) {}
+  },
+
+  // ── View: Asignación ───────────────────────────────────────
+
+  _renderAsignacion(container) {
+    if (!this._rawTasks) {
+      container.innerHTML = '<p style="color:var(--muted);padding:24px">La vista Asignación requiere conectar ClickUp vía API.</p>';
+      return;
+    }
+
+    if (!this._asignDraft) this._asignDraft = new Map();
+
+    // Warn on page-level navigation when draft is non-empty
+    if (this._unloadHandler) window.removeEventListener('beforeunload', this._unloadHandler);
+    this._unloadHandler = e => {
+      if (this._asignDraft && this._asignDraft.size > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', this._unloadHandler);
+
+    // ── Jr workload ──────────────────────────────────────────
+    const jrLoad = {};
+    for (const jr of this.JR_LIST) {
+      const active = this._items.filter(i => i.designer === jr && !i.pending);
+      jrLoad[jr] = {
+        niveles: active.reduce((s, i) => s + (i.nivel || 0), 0),
+        items:   active,
+      };
+    }
+
+    const loadInfo = niv => {
+      if (niv <= 8)  return { dot: '🟢', label: 'Disponible',  cls: 'load-ok'  };
+      if (niv <= 15) return { dot: '🟡', label: 'Carga media', cls: 'load-mid' };
+      return               { dot: '🔴', label: 'Saturado',    cls: 'load-hi'  };
+    };
+
+    // ── Section 1: Jr status cards ───────────────────────────
+    const jrCardsHtml = this.JR_LIST.map(jr => {
+      const load  = jrLoad[jr];
+      const info  = loadInfo(load.niveles);
+      const color = DESIGNER_COLORS[jr] || '#888';
+      const rows  = load.items.length === 0
+        ? `<p class="asign-empty-msg">Sin ítems activos</p>`
+        : load.items.map(i =>
+            `<div class="asign-item-row">
+               <span class="asign-item-niv">${i.nivel !== null ? `N${fmtNum(i.nivel)}` : '—'}</span>
+               <span class="asign-item-name">${esc(i.name)}</span>
+               <span class="asign-item-proj">${esc(i.project || '')}</span>
+             </div>`).join('');
+      return `
+        <div class="asign-jr-card">
+          <div class="asign-jr-header">
+            <span class="sched-pair-dot" style="background:${color}"></span>
+            <span class="asign-jr-name">${esc(jr)}</span>
+            <span class="asign-load-indicator ${info.cls}">${info.dot} ${info.label}</span>
+            <span class="asign-jr-stats">${fmtNum(load.niveles)} niv. · ${load.items.length} ítem${load.items.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="asign-jr-items">${rows}</div>
+        </div>`;
+    }).join('');
+
+    // ── Section 2: Sr-only items ─────────────────────────────
+    const srOnlyTasks = this._apiTasks.filter(t =>
+      t.allDesigners.length > 0 &&
+      t.allDesigners.every(d => this.SR_LIST.includes(d))
+    );
+
+    const bySr = {};
+    for (const sr of this.SR_LIST) bySr[sr] = [];
+    for (const task of srOnlyTasks) {
+      const sr = task.allDesigners.find(d => this.SR_LIST.includes(d));
+      if (sr) bySr[sr].push(task);
+    }
+
+    const jrOptionsHtml = (currentDraft) =>
+      `<option value="">Asignar a…</option>` +
+      this.JR_LIST.map(jr => {
+        const info = loadInfo(jrLoad[jr].niveles);
+        const sel  = currentDraft?.jrName === jr ? 'selected' : '';
+        return `<option value="${esc(jr)}" ${sel}>${esc(jr)} — ${info.dot} ${fmtNum(jrLoad[jr].niveles)} niv.</option>`;
+      }).join('');
+
+    const srSections = this.SR_LIST.map(sr => {
+      const tasks = bySr[sr];
+      if (!tasks.length) return '';
+      const color = DESIGNER_COLORS[sr] || '#888';
+      const rows  = tasks.map(task => {
+        const draft    = this._asignDraft.get(task.taskId);
+        const hasDraft = !!draft;
+        const pendBadge = task.pending
+          ? `<span class="asign-pend-badge">Pendiente</span>`
+          : '';
+        return `
+          <div class="asign-pending-row${hasDraft ? ' has-draft' : ''}" data-task-id="${esc(task.taskId)}">
+            <span class="asign-item-niv">${task.nivel !== null ? `N${fmtNum(task.nivel)}` : '—'}</span>
+            <span class="asign-pending-name">${esc(task.name)}${pendBadge}</span>
+            <span class="asign-pending-proj">${esc(task.project || '')}</span>
+            <select class="asign-assign-select"
+              data-task-id="${esc(task.taskId)}"
+              data-task-name="${esc(task.name)}"
+              data-sr="${esc(sr)}">
+              ${jrOptionsHtml(draft)}
+            </select>
+            ${hasDraft ? `<span class="asign-draft-tag">✎ ${esc(draft.jrName)}</span>` : ''}
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="asign-sr-block">
+          <div class="asign-sr-title">
+            <span class="sched-pair-dot" style="background:${color}"></span>
+            ${esc(sr)}
+            <span class="sched-pair-count">${tasks.length} ítem${tasks.length !== 1 ? 's' : ''} sin Jr</span>
+          </div>
+          ${rows}
+        </div>`;
+    }).join('');
+
+    const noSrOnly = srOnlyTasks.length === 0;
+
+    // ── Section 3: Draft bar ─────────────────────────────────
+    const draftBarHtml = this._asignDraft.size > 0 ? this._buildDraftBar() : '';
+
+    container.innerHTML = `
+      <div class="asign-wrap">
+
+        <div class="asign-section-title">Estado actual de Juniors</div>
+        <div class="asign-jr-grid">${jrCardsHtml}</div>
+
+        <div class="asign-section-title" style="margin-top:32px">Ítems sin Jr asignado</div>
+        ${noSrOnly
+          ? `<p class="asign-empty-msg" style="padding:16px 0">Todos los ítems activos tienen Jr asignado. 🎉</p>`
+          : `<div class="asign-sr-list">${srSections}</div>`
+        }
+
+      </div>
+      <div id="asign-draft-bar" class="asign-draft-bar${this._asignDraft.size > 0 ? ' visible' : ''}">${draftBarHtml}</div>`;
+
+    // ── Bind dropdown changes ────────────────────────────────
+    container.querySelectorAll('.asign-assign-select').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const taskId   = sel.dataset.taskId;
+        const taskName = sel.dataset.taskName;
+        const sr       = sel.dataset.sr;
+        const jrName   = sel.value;
+
+        if (!jrName) {
+          this._asignDraft.delete(taskId);
+        } else {
+          this._asignDraft.set(taskId, {
+            taskId,
+            taskName,
+            sr,
+            jrName,
+            jrUserId: this._userIdMap[jrName] || null,
+          });
+        }
+
+        // Update row highlight
+        const row = container.querySelector(`.asign-pending-row[data-task-id="${CSS.escape(taskId)}"]`);
+        if (row) row.classList.toggle('has-draft', !!jrName);
+
+        // Update draft bar
+        const bar = document.getElementById('asign-draft-bar');
+        if (bar) {
+          bar.innerHTML  = this._asignDraft.size > 0 ? this._buildDraftBar() : '';
+          bar.className  = `asign-draft-bar${this._asignDraft.size > 0 ? ' visible' : ''}`;
+          this._bindDraftBar(container, bar);
+        }
+      });
+    });
+
+    this._bindDraftBar(container, document.getElementById('asign-draft-bar'));
+  },
+
+  _buildDraftBar() {
+    const changes = Array.from(this._asignDraft.values());
+    const list = changes.map(c =>
+      `<span class="asign-draft-chip"><b>${esc(c.jrName)}</b> ← ${esc(c.taskName)}</span>`
+    ).join('');
+    const n = changes.length;
+    return `
+      <div class="asign-draft-inner">
+        <div class="asign-draft-info">
+          <span class="asign-draft-count">${n} cambio${n !== 1 ? 's' : ''} pendiente${n !== 1 ? 's' : ''}</span>
+          <div class="asign-draft-chips">${list}</div>
+        </div>
+        <div class="asign-draft-actions">
+          <button class="btn-secondary" id="asign-discard-btn">Descartar</button>
+          <button class="btn-primary"   id="asign-confirm-btn">Confirmar y sincronizar con ClickUp →</button>
+        </div>
+      </div>`;
+  },
+
+  _bindDraftBar(container, bar) {
+    if (!bar) return;
+    const discardBtn = bar.querySelector('#asign-discard-btn');
+    const confirmBtn = bar.querySelector('#asign-confirm-btn');
+    if (discardBtn) discardBtn.onclick = () => {
+      this._asignDraft.clear();
+      this._renderAsignacion(container);
+    };
+    if (confirmBtn) confirmBtn.onclick = () => this._syncAsignacion(container);
+  },
+
+  async _syncAsignacion(container) {
+    const apiKey = ClickUpIntegration.getApiKey();
+    if (!apiKey) {
+      alert('No se encontró el API token de ClickUp. Ve a Inicio y vuelve a conectar.');
+      return;
+    }
+
+    const changes  = Array.from(this._asignDraft.values());
+    const total    = changes.length;
+    const bar      = document.getElementById('asign-draft-bar');
+    let   succeeded = 0;
+    const errors   = [];
+
+    for (let i = 0; i < changes.length; i++) {
+      const c = changes[i];
+      if (bar) bar.innerHTML = `
+        <div class="asign-draft-inner">
+          <span style="font-size:13px;color:var(--muted)">
+            Actualizando ítem ${i + 1} de ${total}… <b>${esc(c.taskName)}</b>
+          </span>
+        </div>`;
+
+      if (!c.jrUserId) {
+        errors.push(`${c.taskName} — user ID no encontrado para "${c.jrName}". Sincroniza de nuevo en Inicio.`);
+        continue;
+      }
+
+      try {
+        const resp = await fetch(`https://api.clickup.com/api/v2/task/${c.taskId}`, {
+          method:  'PUT',
+          headers: { Authorization: apiKey, 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ assignees: { add: [c.jrUserId] } }),
+        });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error(data?.err || data?.error || `HTTP ${resp.status}`);
+        }
+        succeeded++;
+      } catch (err) {
+        errors.push(`${c.taskName} — ${err.message}`);
+      }
+    }
+
+    this._asignDraft.clear();
+
+    if (errors.length === 0) {
+      if (bar) {
+        bar.innerHTML = `
+          <div class="asign-draft-inner">
+            <span style="font-size:13px;font-weight:600;color:#065f46">
+              ✓ ${succeeded} ítem${succeeded !== 1 ? 's' : ''} actualizado${succeeded !== 1 ? 's' : ''} en ClickUp
+            </span>
+          </div>`;
+      }
+      setTimeout(() => this._renderAsignacion(container), 1600);
+    } else {
+      if (bar) {
+        bar.innerHTML = `
+          <div class="asign-draft-inner">
+            <div style="font-size:13px">
+              <b>✓ ${succeeded} de ${total} actualizado${succeeded !== 1 ? 's' : ''}.</b>
+              Errores:<br>${errors.map(e => `<span style="color:var(--below-text)">${esc(e)}</span>`).join('<br>')}
+            </div>
+            <div class="asign-draft-actions">
+              <button class="btn-secondary" id="asign-discard-btn">Cerrar</button>
+            </div>
+          </div>`;
+        bar.querySelector('#asign-discard-btn')?.addEventListener('click', () => {
+          this._renderAsignacion(container);
+        });
+      }
+    }
   },
 
   // ── Drag-and-drop ──────────────────────────────────────────
