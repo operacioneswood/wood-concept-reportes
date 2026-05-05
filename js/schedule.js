@@ -1233,6 +1233,31 @@ const Schedule = {
               </div>`;
           }).join('');
 
+      // Status breakdown summary
+      const STATUS_ORDER = [
+        'en dibujo', 'revision de constructivo',
+        'enviado a aprobacion', 'aprobado',
+        'proximos a entrar', 'asignado',
+      ];
+      const counts = {};
+      for (const i of load.items) counts[i.status] = (counts[i.status] || 0) + 1;
+      // Also count ALL items in _apiTasks assigned to this Jr (includes pending)
+      const allJrTasks = this._apiTasks.filter(t => t.allDesigners.includes(jr));
+      const allCounts = {};
+      for (const t of allJrTasks) allCounts[t.status] = (allCounts[t.status] || 0) + 1;
+
+      const summaryChips = STATUS_ORDER
+        .filter(s => allCounts[s])
+        .map(s => {
+          const [sbg, sfg] = STATUS_COLORS[s] || ['#f3f4f6', '#374151'];
+          const slabel = STATUS_LABEL[s] || s;
+          return `<span class="asign-status-chip" style="background:${sbg};color:${sfg}">${esc(slabel)} <b>${allCounts[s]}</b></span>`;
+        }).join('');
+
+      const summaryRow = summaryChips
+        ? `<div class="asign-jr-summary">${summaryChips}</div>`
+        : '';
+
       return `
         <div class="asign-jr-card">
           <div class="asign-jr-header">
@@ -1242,6 +1267,7 @@ const Schedule = {
             <span class="asign-jr-stats">${fmtNum(load.niveles)} niv. · ${load.items.length} ítem${load.items.length !== 1 ? 's' : ''}</span>
           </div>
           <div class="asign-jr-items">${itemRows}</div>
+          ${summaryRow}
         </div>`;
     }).join('');
 

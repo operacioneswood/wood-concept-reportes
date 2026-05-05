@@ -1389,6 +1389,27 @@ body {
 
 /* ── Jr card item rows (Fix 1 — 3-line layout) ── */
 .asign-jr-items { padding: 0; }
+
+/* Status breakdown summary row inside each Jr card */
+.asign-jr-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--divider);
+  background: var(--surface);
+  border-radius: 0 0 10px 10px;
+}
+.asign-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
 .asign-jr-item {
   padding: 10px 14px;
   border-bottom: 1px solid var(--divider);
