@@ -1531,6 +1531,11 @@ const Schedule = {
           const data = await resp.json().catch(() => ({}));
           throw new Error(data?.err || data?.error || `HTTP ${resp.status}`);
         }
+        // Update local _apiTasks so the re-render reflects the new assignment
+        const local = this._apiTasks.find(t => t.taskId === c.taskId);
+        if (local && !local.allDesigners.includes(c.assignName)) {
+          local.allDesigners.push(c.assignName);
+        }
         succeeded++;
       } catch (err) {
         errors.push(`${c.taskName} — ${err.message}`);
@@ -1548,7 +1553,7 @@ const Schedule = {
             </span>
           </div>`;
       }
-      setTimeout(() => this._renderAsignacion(container), 1600);
+      setTimeout(() => this._renderAsignacion(container), 1200);
     } else {
       if (bar) {
         bar.innerHTML = `
