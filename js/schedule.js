@@ -1185,6 +1185,16 @@ const Schedule = {
       };
     }
 
+    // ── Sr workload (Σ nivel from Cronograma items) ──────────
+    const srLoad = {};
+    for (const sr of this.SR_LIST) {
+      const active = this._items.filter(i => i.designer === sr && !i.pending);
+      srLoad[sr] = {
+        niveles: active.reduce((s, i) => s + (i.nivel || 0), 0),
+        items:   active,
+      };
+    }
+
     const loadInfo = niv => {
       if (niv <= 8)  return { dot: '🟢', label: 'Disponible',  cls: 'load-ok'  };
       if (niv <= 15) return { dot: '🟡', label: 'Carga media', cls: 'load-mid' };
