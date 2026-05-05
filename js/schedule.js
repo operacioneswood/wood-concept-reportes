@@ -186,9 +186,15 @@ const Schedule = {
     ]);
     const nameById = new Map((rawTasks || []).map(t => [t.id, t.name || '']));
 
-    // Parent tasks whose status means "not yet started" — exclude their children
-    // from Asignación (but NOT from Cronograma items).
-    const INACTIVE_PARENT = new Set(['asignado', 'prospecto', 'cotizacion', 'cotización']);
+    // Whitelist: only show children in Asignación when the parent project is
+    // in one of these design-phase statuses. Any other parent status (en pintura,
+    // asignado, prospecto, cotización, completado, etc.) → exclude children.
+    // Items without a parent task are always included.
+    const VALID_PARENT = new Set([
+      'en dibujo', 'enviado a aprobacion',
+      'revision de constructivo', 'aprobado',
+      'proximos a entrar',
+    ]);
 
     // Pre-build a map of every task's status and designers (all tasks, not just ACTIVE).
     // Used to resolve parent task ownership for items that have no assignee of their own.
@@ -245,9 +251,11 @@ const Schedule = {
       // Resolve parent task info for Asignación routing
       const parentInfo     = t.parent ? (parentInfoById.get(t.parent) || null) : null;
       const parentSrs      = (parentInfo?.designers || []).filter(d => this.SR_LIST.includes(d));
-      const parentInactive = parentInfo ? INACTIVE_PARENT.has(parentInfo.status) : false;
+      // parentInfo is null when the task has no parent → always include.
+      // When there IS a parent, only include if the parent is in a design-phase status.
+      const parentInactive = parentInfo ? !VALID_PARENT.has(parentInfo.status) : false;
 
-      // Push to _apiTasks only when parent project is not in an inactive status.
+      // Push to _apiTasks only when parent project is in an active design status.
       // Unassigned tasks are included (allDesigners may be []).
       if (!parentInactive) {
         this._apiTasks.push({
