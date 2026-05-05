@@ -59,6 +59,7 @@ const Report = {
     this._renderTeamSummary();
     this._renderCards();
     this._renderUnassigned();
+    this._renderAlerts();   // async — updates the #alerts-section when ready
     this._renderFooter();
     this._bindSaveBtn();
   },
@@ -354,6 +355,148 @@ const Report = {
         ${showTiered ? mkSec(approved,    'Aprobado',   'var(--apv-text)')   : ''}
         ${mkSec(productions, 'Producción', 'var(--prod-text)')}
       </div>`;
+  },
+
+  // ── Alerts section — cross-month follow-up ────────────────
+  // Loads the M-1 snapshot from Firestore and compares items
+  // with the current month M to surface stalled items.
+  // Called fire-and-forget from _paint(); updates DOM when done.
+  async _renderAlerts() {
+    const wrap = el('alerts-section');
+    if (!wrap) return;
+    wrap.innerHTML = ''; // clear stale content while loading
+
+    const { month, year } = this._report;
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear  = month === 1 ? year - 1 : year;
+    const prevLabel = `${MONTH_NAMES[prevMonth]} ${prevYear}`;
+    const currLabel = `${MONTH_NAMES[month]} ${year}`;
+
+    const prev = await Storage.load(prevYear, prevMonth);
+    if (!prev) return; // no prior snapshot — skip silently
+
+    // ── Key functions ──────────────────────────────────────
+    // Current report items: .op, .name, .parent
+    const mKey = i => i.op ? 'op:' + i.op
+      : 'np:' + (i.name || '') + '|' + (i.parent || '');
+    // Stored snapshot items: .op, .name, .project
+    const sKey = i => i.op ? 'op:' + i.op
+      : 'np:' + (i.name || '') + '|' + (i.project || '');
+
+    // ── M key sets from current report ─────────────────────
+    const mAllKeys  = new Set();
+    const mProdKeys = new Set();
+    const mApvKeys  = new Set();
+    for (const d of this._report.designers) {
+      for (const i of (d.drawings    || [])) mAllKeys.add(mKey(i));
+      for (const i of (d.approved    || [])) { mAllKeys.add(mKey(i)); mApvKeys.add(mKey(i)); }
+      for (const i of (d.productions || [])) { mAllKeys.add(mKey(i)); mProdKeys.add(mKey(i)); }
+    }
+
+    // ── M-1 items from stored snapshot (dedup by key) ──────
+    const seenDraw = new Set(), seenApv = new Set();
+    const prevDraw = [], prevApv = [];
+
+    for (const [dName, d] of Object.entries(prev.designers || {})) {
+      for (const item of (d.drawing || [])) {
+        const k = sKey(item);
+        if (!seenDraw.has(k)) { seenDraw.add(k); prevDraw.push({ k, item, designer: dName }); }
+      }
+      for (const item of (d.approved || [])) {
+        const k = sKey(item);
+        if (!seenApv.has(k)) { seenApv.add(k); prevApv.push({ k, item, designer: dName }); }
+      }
+    }
+
+    // ── Classify alerts ────────────────────────────────────
+    // Type 1: was in M-1 drawing, absent from M entirely
+    const alert1 = prevDraw.filter(e => !mAllKeys.has(e.k));
+
+    // Type 2/3: was in M-1 approved, not yet in M production
+    //   Type 3 (subset): also still in M approved → 2+ months stalled
+    const alert23 = prevApv
+      .filter(e => !mProdKeys.has(e.k))
+      .map(e => ({ ...e, alertType: mApvKeys.has(e.k) ? 3 : 2 }));
+
+    const total = alert1.length + alert23.length;
+
+    // ── Row builder ────────────────────────────────────────
+    const mkRow = (e, type) => {
+      const i = e.item;
+      const meta = [
+        i.project ? esc(i.project)    : '',
+        i.op      ? `OP ${esc(i.op)}` : '',
+        esc(e.designer),
+      ].filter(Boolean).join(' · ');
+
+      let icon, cls, msg;
+      if (type === 1) {
+        icon = '⚠';
+        cls  = 'alert-type-1';
+        msg  = `Dibujado en ${prevLabel} · Sin avance en ${currLabel}`;
+      } else if (type === 2) {
+        icon = '⚠';
+        cls  = 'alert-type-2';
+        msg  = `Aprobado en ${prevLabel} · Sin producción en ${currLabel}`;
+      } else {
+        icon = '🔴';
+        cls  = 'alert-type-3';
+        msg  = `Aprobado hace 2 meses · ${currLabel} y ${prevLabel} sin prod.`;
+      }
+
+      return `<div class="alert-row ${cls}">
+        <div class="alert-icon">${icon}</div>
+        <div class="alert-body">
+          <div class="alert-name">${esc(i.name)}</div>
+          <div class="alert-meta">${meta}</div>
+          <div class="alert-msg">${msg}</div>
+        </div>
+      </div>`;
+    };
+
+    // ── Zero-alerts state ──────────────────────────────────
+    if (total === 0) {
+      wrap.innerHTML = `<div class="alerts-section">
+        <div class="alerts-zero">✓ Sin alertas de seguimiento este mes</div>
+      </div>`;
+      return;
+    }
+
+    // ── Build group HTML ───────────────────────────────────
+    const s1 = alert1.length ? `
+      <div class="alert-group">
+        <div class="alert-group-title">Sin avance desde dibujo (${alert1.length})</div>
+        <div class="alert-group-body">
+          ${alert1.map(e => mkRow(e, 1)).join('')}
+        </div>
+      </div>` : '';
+
+    const s23 = alert23.length ? `
+      <div class="alert-group">
+        <div class="alert-group-title">Aprobado sin enviar a fábrica (${alert23.length})</div>
+        <div class="alert-group-body">
+          ${alert23.map(e => mkRow(e, e.alertType)).join('')}
+        </div>
+      </div>` : '';
+
+    wrap.innerHTML = `
+      <div class="alerts-section">
+        <div class="alerts-header" id="alerts-header">
+          <span class="alerts-title">⚠ ALERTAS DE SEGUIMIENTO</span>
+          <span class="alerts-badge">${total} alerta${total !== 1 ? 's' : ''}</span>
+          <button class="alerts-toggle" id="alerts-toggle">▲ Colapsar</button>
+        </div>
+        <div id="alerts-body">${s1}${s23}</div>
+      </div>`;
+
+    el('alerts-header').addEventListener('click', () => {
+      const body = el('alerts-body');
+      const btn  = el('alerts-toggle');
+      if (!body || !btn) return;
+      const open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : '';
+      btn.textContent    = open ? '▼ Expandir' : '▲ Colapsar';
+    });
   },
 
   _renderFooter() {
