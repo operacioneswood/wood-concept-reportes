@@ -1507,6 +1507,8 @@ const Schedule = {
     let   succeeded = 0;
     const errors   = [];
 
+    console.log('[Asignación] Sincronizando cambios:', changes);
+
     for (let i = 0; i < changes.length; i++) {
       const c = changes[i];
       if (bar) bar.innerHTML = `
@@ -1516,23 +1518,38 @@ const Schedule = {
           </span>
         </div>`;
 
+      console.log(`[Asignación] Ítem ${i + 1}:`, {
+        taskId:       c.taskId,
+        taskName:     c.taskName,
+        assignType:   c.assignType,
+        assignName:   c.assignName,
+        assignUserId: c.assignUserId,
+        userIdMap:    { ...this._userIdMap },
+      });
+
       if (!c.assignUserId) {
+        const msg = `❌ User ID no encontrado para "${c.assignName}".\n\nAbre la consola del navegador (F12 → Console) para ver el mapa de IDs.\n\nAsegúrate de hacer Sincronizar en Inicio antes de asignar.`;
+        alert(msg);
         errors.push(`${c.taskName} — user ID no encontrado para "${c.assignName}". Sincroniza de nuevo en Inicio.`);
         continue;
       }
 
       try {
+        const userId = Number(c.assignUserId);
+        console.log(`[Asignación] PUT task ${c.taskId} → add user ${userId}`);
         const resp = await fetch(`https://api.clickup.com/api/v2/task/${c.taskId}`, {
           method:  'PUT',
           headers: { Authorization: apiKey, 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ assignees: { add: [c.assignUserId] } }),
+          body:    JSON.stringify({ assignees: { add: [userId] } }),
         });
+        const data = await resp.json().catch(() => ({}));
+        console.log(`[Asignación] Respuesta HTTP ${resp.status}:`, data);
         if (!resp.ok) {
-          const data = await resp.json().catch(() => ({}));
           throw new Error(data?.err || data?.error || `HTTP ${resp.status}`);
         }
         succeeded++;
       } catch (err) {
+        console.error(`[Asignación] Error en "${c.taskName}":`, err);
         errors.push(`${c.taskName} — ${err.message}`);
       }
     }
