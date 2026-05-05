@@ -186,6 +186,25 @@ const Schedule = {
     ]);
     const nameById = new Map((rawTasks || []).map(t => [t.id, t.name || '']));
 
+    // Parent tasks whose status means "not yet started" — exclude their children
+    // from Asignación (but NOT from Cronograma items).
+    const INACTIVE_PARENT = new Set(['asignado', 'prospecto', 'cotizacion', 'cotización']);
+
+    // Pre-build a map of every task's status and designers (all tasks, not just ACTIVE).
+    // Used to resolve parent task ownership for items that have no assignee of their own.
+    const parentInfoById = new Map();
+    for (const t of (rawTasks || [])) {
+      const ds = [];
+      for (const a of (t.assignees || [])) {
+        const rawN = (a.username || a.name || '').trim();
+        if (!rawN) continue;
+        const fi = normStr(rawN.split(' ')[0]);
+        if (CU_EXCLUDE.has(fi)) continue;
+        ds.push(CU_MAP[rawN] || rawN);
+      }
+      parentInfoById.set(t.id, { status: normStr(t.status?.status || ''), designers: ds });
+    }
+
     // Convert a Unix-ms timestamp (number or string) to Date or null.
     const toDate = ts => {
       if (!ts) return null;
@@ -223,17 +242,27 @@ const Schedule = {
       const parent    = t.parent ? (nameById.get(t.parent) || '') : (t.folder?.name || t.list?.name || '');
       const isPending = rawStatus === 'proximos a entrar' || rawStatus === 'asignado';
 
-      // Always push to _apiTasks — includes unassigned tasks (allDesigners may be [])
-      this._apiTasks.push({
-        taskId:       t.id,
-        name:         t.name || '',
-        project:      parent,
-        nivel,
-        op:           opVal,
-        status:       rawStatus,
-        pending:      isPending,
-        allDesigners: designers,
-      });
+      // Resolve parent task info for Asignación routing
+      const parentInfo     = t.parent ? (parentInfoById.get(t.parent) || null) : null;
+      const parentSrs      = (parentInfo?.designers || []).filter(d => this.SR_LIST.includes(d));
+      const parentInactive = parentInfo ? INACTIVE_PARENT.has(parentInfo.status) : false;
+
+      // Push to _apiTasks only when parent project is not in an inactive status.
+      // Unassigned tasks are included (allDesigners may be []).
+      if (!parentInactive) {
+        this._apiTasks.push({
+          taskId:       t.id,
+          name:         t.name || '',
+          project:      parent,
+          parentId:     t.parent || null,
+          parentSrs,
+          nivel,
+          op:           opVal,
+          status:       rawStatus,
+          pending:      isPending,
+          allDesigners: designers,
+        });
+      }
 
       // Only add to items (Cronograma) when at least one designer is known
       if (!designers.length) continue;
@@ -1201,34 +1230,84 @@ const Schedule = {
         </div>`;
     }).join('');
 
-    // ── Section 2: Items needing a Jr (Fix 2 + Fix 3) ────────
-    // All active tasks that do NOT have a Jr assigned yet
+    // ── Section 2: Items needing a Jr ────────────────────────
+    // All tasks (from _apiTasks) that do NOT yet have a Jr assigned
     const needsJr = this._apiTasks.filter(t =>
       !t.allDesigners.some(d => this.JR_LIST.includes(d))
     );
 
-    // Split into Sr-buckets vs "no Sr" bucket
-    const bySr = {};
-    for (const sr of this.SR_LIST) bySr[sr] = [];
-    const noSrTasks = [];
-
+    // ── Fix 3 — Deduplicate projects: each project appears exactly once.
+    // Owner Sr priority: parentSrs → item's own Sr → Sr with most items in project.
+    const projectMap = new Map(); // projName → { tasks[], ownerSr, srCounts }
     for (const task of needsJr) {
-      const sr = task.allDesigners.find(d => this.SR_LIST.includes(d));
-      if (sr) bySr[sr].push(task);
-      else    noSrTasks.push(task);
+      const projName = task.project || '(Sin proyecto)';
+      if (!projectMap.has(projName)) {
+        const ownerSr = (task.parentSrs || [])[0]
+          || task.allDesigners.find(d => this.SR_LIST.includes(d))
+          || null;
+        projectMap.set(projName, { tasks: [], ownerSr, srCounts: new Map() });
+      }
+      const entry = projectMap.get(projName);
+      entry.tasks.push(task);
+      // Fill ownerSr if still unknown
+      if (!entry.ownerSr) {
+        entry.ownerSr = (task.parentSrs || [])[0]
+          || task.allDesigners.find(d => this.SR_LIST.includes(d))
+          || null;
+      }
+      // Track per-Sr item counts for tiebreaking
+      for (const d of task.allDesigners) {
+        if (this.SR_LIST.includes(d))
+          entry.srCounts.set(d, (entry.srCounts.get(d) || 0) + 1);
+      }
+    }
+    // Final pass: pick the Sr with the most items for projects still without an owner
+    for (const entry of projectMap.values()) {
+      if (!entry.ownerSr && entry.srCounts.size > 0) {
+        let max = 0;
+        for (const [sr, cnt] of entry.srCounts) {
+          if (cnt > max) { max = cnt; entry.ownerSr = sr; }
+        }
+      }
     }
 
-    // Jr dropdown helper
-    const jrOptionsHtml = (currentDraft) =>
-      `<option value="">Asignar Jr…</option>` +
-      this.JR_LIST.map(jr => {
-        const info = loadInfo(jrLoad[jr].niveles);
-        const sel  = currentDraft?.jrName === jr ? 'selected' : '';
-        return `<option value="${esc(jr)}" ${sel}>${esc(jr)} — ${info.dot} ${fmtNum(jrLoad[jr].niveles)} niv.</option>`;
-      }).join('');
+    // Bucket deduplicated projects by owning Sr
+    const bySr = {};
+    for (const sr of this.SR_LIST) bySr[sr] = [];
+    const noOwnerProjects = [];
+    for (const [projName, entry] of projectMap) {
+      if (entry.ownerSr && bySr[entry.ownerSr]) {
+        bySr[entry.ownerSr].push({ projName, tasks: entry.tasks });
+      } else {
+        noOwnerProjects.push({ projName, tasks: entry.tasks });
+      }
+    }
 
-    // Render one item row with Asignar dropdown
-    const renderPendingRow = (task, sr) => {
+    // ── Fix 4 — Dropdown: Sr optgroup (only when item has no Sr) + Jr optgroup
+    const buildDropdownOptions = (task, currentDraft) => {
+      const hasSrAssigned = task.allDesigners.some(d => this.SR_LIST.includes(d));
+      let html = `<option value="">Asignar a…</option>`;
+      // Sr section: only shown for items with no Sr yet
+      if (!hasSrAssigned) {
+        html += `<optgroup label="── Asignar Sr ──">` +
+          this.SR_LIST.map(sr => {
+            const niv = fmtNum((srLoad[sr] || { niveles: 0 }).niveles);
+            const sel = currentDraft?.assignType === 'sr' && currentDraft.assignName === sr ? 'selected' : '';
+            return `<option value="sr:${esc(sr)}" ${sel}>${esc(sr)} · Σ ${niv} niv.</option>`;
+          }).join('') + `</optgroup>`;
+      }
+      // Jr section: always shown
+      html += `<optgroup label="── Asignar Jr ──">` +
+        this.JR_LIST.map(jr => {
+          const info = loadInfo((jrLoad[jr] || { niveles: 0 }).niveles);
+          const sel  = currentDraft?.assignType === 'jr' && currentDraft.assignName === jr ? 'selected' : '';
+          return `<option value="jr:${esc(jr)}" ${sel}>${esc(jr)} · Σ ${fmtNum((jrLoad[jr] || { niveles: 0 }).niveles)} niv. ${info.dot}</option>`;
+        }).join('') + `</optgroup>`;
+      return html;
+    };
+
+    // Render one item row with assignment dropdown
+    const renderPendingRow = (task) => {
       const draft    = this._asignDraft.get(task.taskId);
       const hasDraft = !!draft;
       const [sbg, sfg] = STATUS_COLORS[task.status] || ['#f3f4f6', '#374151'];
@@ -1246,30 +1325,23 @@ const Schedule = {
           </div>
           <select class="asign-assign-select"
             data-task-id="${esc(task.taskId)}"
-            data-task-name="${esc(task.name)}"
-            data-sr="${esc(sr || '')}">
-            ${jrOptionsHtml(draft)}
+            data-task-name="${esc(task.name)}">
+            ${buildDropdownOptions(task, draft)}
           </select>
-          ${hasDraft ? `<span class="asign-draft-tag">✎ ${esc(draft.jrName)}</span>` : ''}
+          ${hasDraft ? `<span class="asign-draft-tag">✎ ${esc(draft.assignName)}</span>` : ''}
         </div>`;
     };
 
-    // Render collapsible project groups within one Sr block
-    const renderProjGroups = (tasks, keyPrefix) => {
-      const projMap = new Map();
-      for (const t of tasks) {
-        const proj = t.project || '(Sin proyecto)';
-        if (!projMap.has(proj)) projMap.set(proj, []);
-        projMap.get(proj).push(t);
-      }
-      return Array.from(projMap.entries()).map(([proj, ptasks], pi) => {
+    // Render collapsible project groups for a list of {projName, tasks} entries
+    const renderProjGroups = (projList, keyPrefix) => {
+      return projList.map(({ projName, tasks: ptasks }, pi) => {
         const projId = `asign-proj-${keyPrefix}-${pi}`;
         const n = ptasks.length;
-        const rows = ptasks.map(t => renderPendingRow(t, keyPrefix)).join('');
+        const rows = ptasks.map(t => renderPendingRow(t)).join('');
         return `
           <div class="asign-proj-row" data-proj-id="${projId}" data-expanded="false">
             <span class="asign-proj-arrow">▶</span>
-            <span class="asign-proj-name">${esc(proj)}</span>
+            <span class="asign-proj-name">${esc(projName)}</span>
             <span class="asign-proj-count">${n} ítem${n !== 1 ? 's' : ''} sin Jr</span>
           </div>
           <div class="asign-proj-items" id="${projId}" style="display:none">${rows}</div>`;
@@ -1277,29 +1349,34 @@ const Schedule = {
     };
 
     const srSections = this.SR_LIST.map(sr => {
-      const tasks = bySr[sr];
-      if (!tasks.length) return '';
+      const projList = bySr[sr];
+      if (!projList.length) return '';
+      const totalItems = projList.reduce((s, p) => s + p.tasks.length, 0);
       const color = DESIGNER_COLORS[sr] || '#888';
       return `
         <div class="asign-sr-block">
           <div class="asign-sr-title">
             <span class="sched-pair-dot" style="background:${color}"></span>
             ${esc(sr)}
-            <span class="sched-pair-count">${tasks.length} ítem${tasks.length !== 1 ? 's' : ''} sin Jr</span>
+            <span class="sched-pair-count">${totalItems} ítem${totalItems !== 1 ? 's' : ''} sin Jr</span>
           </div>
-          ${renderProjGroups(tasks, sr.replace(/\s+/g, ''))}
+          ${renderProjGroups(projList, sr.replace(/\s+/g, ''))}
         </div>`;
     }).join('');
 
-    const noSrSection = noSrTasks.length === 0 ? '' : `
-      <div class="asign-sr-block">
-        <div class="asign-sr-title">
-          <span class="sched-pair-dot" style="background:#9ca3af"></span>
-          Sin Sr asignado
-          <span class="sched-pair-count">${noSrTasks.length} ítem${noSrTasks.length !== 1 ? 's' : ''}</span>
-        </div>
-        ${renderProjGroups(noSrTasks, 'nosr')}
-      </div>`;
+    // Truly orphan projects (no Sr anywhere) — show in a neutral block
+    const noOwnerSection = noOwnerProjects.length === 0 ? '' : (() => {
+      const totalItems = noOwnerProjects.reduce((s, p) => s + p.tasks.length, 0);
+      return `
+        <div class="asign-sr-block">
+          <div class="asign-sr-title">
+            <span class="sched-pair-dot" style="background:#9ca3af"></span>
+            Sin asignar
+            <span class="sched-pair-count">${totalItems} ítem${totalItems !== 1 ? 's' : ''}</span>
+          </div>
+          ${renderProjGroups(noOwnerProjects, 'noowner')}
+        </div>`;
+    })();
 
     const hasAny = needsJr.length > 0;
     const draftBarHtml = this._asignDraft.size > 0 ? this._buildDraftBar() : '';
@@ -1311,7 +1388,7 @@ const Schedule = {
 
         <div class="asign-section-title" style="margin-top:32px">Ítems sin Jr asignado</div>
         ${hasAny
-          ? `<div class="asign-sr-list">${srSections}${noSrSection}</div>`
+          ? `<div class="asign-sr-list">${srSections}${noOwnerSection}</div>`
           : `<p class="asign-empty-msg" style="padding:16px 0">Todos los ítems activos tienen Jr asignado. 🎉</p>`
         }
       </div>
@@ -1336,24 +1413,27 @@ const Schedule = {
       sel.addEventListener('change', () => {
         const taskId   = sel.dataset.taskId;
         const taskName = sel.dataset.taskName;
-        const sr       = sel.dataset.sr;
-        const jrName   = sel.value;
+        const value    = sel.value;
 
-        if (!jrName) {
+        if (!value) {
           this._asignDraft.delete(taskId);
         } else {
+          // value is encoded as "sr:Name" or "jr:Name"
+          const colonIdx   = value.indexOf(':');
+          const assignType = value.slice(0, colonIdx);          // 'sr' | 'jr'
+          const assignName = value.slice(colonIdx + 1);         // display name
           this._asignDraft.set(taskId, {
             taskId,
             taskName,
-            sr,
-            jrName,
-            jrUserId: this._userIdMap[jrName] || null,
+            assignType,
+            assignName,
+            assignUserId: this._userIdMap[assignName] || null,
           });
         }
 
         // Update row highlight
         const row = container.querySelector(`.asign-pending-row[data-task-id="${CSS.escape(taskId)}"]`);
-        if (row) row.classList.toggle('has-draft', !!jrName);
+        if (row) row.classList.toggle('has-draft', !!value);
 
         // Update draft bar
         const bar = document.getElementById('asign-draft-bar');
@@ -1370,9 +1450,10 @@ const Schedule = {
 
   _buildDraftBar() {
     const changes = Array.from(this._asignDraft.values());
-    const list = changes.map(c =>
-      `<span class="asign-draft-chip"><b>${esc(c.jrName)}</b> ← ${esc(c.taskName)}</span>`
-    ).join('');
+    const list = changes.map(c => {
+      const typeLabel = c.assignType === 'sr' ? 'Sr' : 'Jr';
+      return `<span class="asign-draft-chip"><b>${esc(c.assignName)}</b> <span style="opacity:.6;font-size:10px">${typeLabel}</span> ← ${esc(c.taskName)}</span>`;
+    }).join('');
     const n = changes.length;
     return `
       <div class="asign-draft-inner">
@@ -1420,8 +1501,8 @@ const Schedule = {
           </span>
         </div>`;
 
-      if (!c.jrUserId) {
-        errors.push(`${c.taskName} — user ID no encontrado para "${c.jrName}". Sincroniza de nuevo en Inicio.`);
+      if (!c.assignUserId) {
+        errors.push(`${c.taskName} — user ID no encontrado para "${c.assignName}". Sincroniza de nuevo en Inicio.`);
         continue;
       }
 
@@ -1429,7 +1510,7 @@ const Schedule = {
         const resp = await fetch(`https://api.clickup.com/api/v2/task/${c.taskId}`, {
           method:  'PUT',
           headers: { Authorization: apiKey, 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ assignees: { add: [c.jrUserId] } }),
+          body:    JSON.stringify({ assignees: { add: [c.assignUserId] } }),
         });
         if (!resp.ok) {
           const data = await resp.json().catch(() => ({}));
