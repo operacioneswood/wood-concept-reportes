@@ -1345,7 +1345,6 @@ body {
   color: var(--faint);
   white-space: nowrap;
 }
-.asign-jr-items { padding: 8px 0; }
 .asign-empty-msg { font-size: 12px; color: var(--faint); padding: 8px 14px; margin: 0; }
 
 /* Shared item row (used inside Jr cards and Sr blocks) */
@@ -1388,12 +1387,62 @@ body {
   color: var(--text);
 }
 
-/* Pending item rows in Sr-only blocks */
+/* ── Jr card item rows (Fix 1 — 3-line layout) ── */
+.asign-jr-items { padding: 0; }
+.asign-jr-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--divider);
+}
+.asign-jr-item:last-child { border-bottom: none; }
+.asign-jr-item-line1 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.asign-jr-item-name { font-size: 13px; font-weight: 500; color: var(--text); }
+.asign-jr-item-op   { font-size: 11px; color: var(--muted); font-weight: 400; }
+.asign-jr-item-proj { font-size: 11.5px; color: var(--faint); margin-top: 3px; }
+.asign-jr-item-meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+.asign-jr-niv-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--divider);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.asign-jr-status-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 100px;
+}
+
+/* ── Collapsible project rows in Section 2 (Fix 2) ── */
+.asign-proj-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px 9px 20px;
+  border-bottom: 1px solid var(--divider);
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg);
+  transition: background 0.12s;
+}
+.asign-proj-row:hover, .asign-proj-row.expanded { background: var(--divider); }
+.asign-proj-arrow { font-size: 10px; color: var(--faint); width: 12px; flex-shrink: 0; }
+.asign-proj-name  { font-size: 13px; font-weight: 500; color: var(--text); flex: 1; }
+.asign-proj-count { font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+.asign-proj-items { }
+
+/* Pending item rows in Section 2 */
 .asign-pending-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 16px;
+  padding: 9px 16px 9px 32px;
   border-bottom: 1px solid var(--divider);
   flex-wrap: wrap;
   transition: background 0.12s;
@@ -1401,29 +1450,18 @@ body {
 .asign-pending-row:last-child { border-bottom: none; }
 .asign-pending-row:hover { background: var(--faint-bg, #faf9f7); }
 .asign-pending-row.has-draft { background: #f0fdf4; }
-.asign-pending-name {
-  flex: 1;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+
+/* Info block inside pending row */
+.asign-prow-info { flex: 1; min-width: 160px; }
+.asign-prow-name { font-size: 12.5px; font-weight: 500; color: var(--text); }
+.asign-prow-op   { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+.asign-prow-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.asign-prow-niv  {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  background: var(--divider); padding: 1px 6px; border-radius: 4px;
 }
-.asign-pending-proj { font-size: 11px; color: var(--faint); flex-shrink: 0; }
-.asign-pend-badge {
-  font-size: 10px;
-  background: #f3f4f6;
-  color: #6b7280;
-  padding: 2px 6px;
-  border-radius: 100px;
-  border: 1px solid #e5e7eb;
-  flex-shrink: 0;
-}
+.asign-prow-status { font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 100px; }
+
 .asign-assign-select {
   flex-shrink: 0;
   border: 1px solid var(--border);
@@ -1433,7 +1471,7 @@ body {
   background: var(--bg);
   color: var(--text);
   cursor: pointer;
-  min-width: 180px;
+  min-width: 190px;
 }
 .asign-draft-tag {
   font-size: 11.5px;
@@ -1492,6 +1530,21 @@ body {
   border-radius: 100px;
 }
 .asign-draft-actions { display: flex; gap: 10px; flex-shrink: 0; }
+
+/* ── Gantt Jr badge (Fix 4) ── */
+.gantt-jr-badge {
+  display: inline-block;
+  background: #dbeafe;
+  color: #1e40af;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-left: 4px;
+  white-space: nowrap;
+  line-height: 14px;
+}
 
 /* ════════════════════════════════════════════════════════════
    PRINT STYLES

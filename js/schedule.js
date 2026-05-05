@@ -215,13 +215,28 @@ const Schedule = {
           this._userIdMap[displayName] = a.id;
         }
       }
-      if (!designers.length) continue;
 
-      const nivRaw   = _cuFieldVal(t, fids.nivel);
-      const nivel    = nivRaw !== '' ? (parseFloat(nivRaw) || null) : null;
-      const corrRaw  = _cuFieldVal(t, fids.corrections);
-      const parent   = t.parent ? (nameById.get(t.parent) || '') : (t.folder?.name || t.list?.name || '');
+      const nivRaw    = _cuFieldVal(t, fids.nivel);
+      const nivel     = nivRaw !== '' ? (parseFloat(nivRaw) || null) : null;
+      const corrRaw   = _cuFieldVal(t, fids.corrections);
+      const opVal     = _cuFieldVal(t, fids.op) || '';
+      const parent    = t.parent ? (nameById.get(t.parent) || '') : (t.folder?.name || t.list?.name || '');
       const isPending = rawStatus === 'proximos a entrar' || rawStatus === 'asignado';
+
+      // Always push to _apiTasks — includes unassigned tasks (allDesigners may be [])
+      this._apiTasks.push({
+        taskId:       t.id,
+        name:         t.name || '',
+        project:      parent,
+        nivel,
+        op:           opVal,
+        status:       rawStatus,
+        pending:      isPending,
+        allDesigners: designers,
+      });
+
+      // Only add to items (Cronograma) when at least one designer is known
+      if (!designers.length) continue;
 
       const fechaInicio     = toDate(t.start_date);
       const finDibujo       = toDate(_cuFieldVal(t, fids.finDibujo));
@@ -229,23 +244,13 @@ const Schedule = {
       const aprobado        = toDate(_cuFieldVal(t, fids.aprobado));
       const envioFabrica    = toDate(_cuFieldVal(t, fids.envio));
 
-      // Flat task record for Asignación view
-      this._apiTasks.push({
-        taskId:       t.id,
-        name:         t.name || '',
-        project:      parent,
-        nivel,
-        status:       rawStatus,
-        pending:      isPending,
-        allDesigners: designers,
-      });
-
       for (const designer of designers) {
         items.push({
           id:  `${t.name || ''}|${parent}`,
           name: t.name || '',
           project: parent,
           nivel,
+          op:              opVal,
           status:          rawStatus,
           pending:         isPending,
           corrections:     parseInt(corrRaw || '0') || 0,
@@ -827,6 +832,12 @@ const Schedule = {
           const globalIdx = timeline.indexOf(item);
           const nStr      = item.nivel !== null ? `N${item.nivel}` : '—';
 
+          // Jr badge — show first Jr's first name if any Jr is in allDesigners
+          const jrOnItem = (item.allDesigners || []).find(d => this.JR_LIST.includes(d));
+          const jrBadge  = jrOnItem
+            ? `<span class="gantt-jr-badge">${esc(jrOnItem.split(' ')[0])}</span>`
+            : '';
+
           if (item.pending) {
             // Pending item: badge only, no phase bars
             innerHtml += `
@@ -834,7 +845,7 @@ const Schedule = {
                    data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${globalIdx}" data-pid="${pid}"
                    style="display:none;min-height:40px;background:#fff">
                 <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:3;background:#fff;padding:5px 10px 5px 28px">
-                  <div style="font-size:12px;font-weight:500;line-height:1.3;word-break:break-word">${esc(item.name)}</div>
+                  <div style="font-size:12px;font-weight:500;line-height:1.3">${esc(item.name)}${jrBadge}</div>
                   <div style="font-size:10px;color:var(--muted)">${esc(nStr)} · Pendiente</div>
                 </div>
                 <div style="position:relative;flex:1;min-height:40px;display:flex;align-items:center;padding:0 12px">
@@ -867,7 +878,7 @@ const Schedule = {
                  data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${globalIdx}" data-pid="${pid}"
                  style="display:none;min-height:40px;background:#fff">
               <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:3;background:#fff;padding:5px 10px 5px 28px">
-                <div style="font-size:12px;font-weight:500;line-height:1.3;word-break:break-word">${esc(item.name)}</div>
+                <div style="font-size:12px;font-weight:500;line-height:1.3">${esc(item.name)}${jrBadge}</div>
                 <div class="gantt-item-meta">${esc(nStr)} · ${esc(item.currentPhase)}</div>
               </div>
               <div style="position:relative;flex:1;min-height:40px;overflow:visible">
@@ -1117,6 +1128,24 @@ const Schedule = {
     };
     window.addEventListener('beforeunload', this._unloadHandler);
 
+    // ── Status label / badge colour helpers ──────────────────
+    const STATUS_LABEL = {
+      'en dibujo':                'En dibujo',
+      'revision de constructivo': 'En revisión',
+      'enviado a aprobacion':     'Enviado a aprob.',
+      'aprobado':                 'Aprobado',
+      'proximos a entrar':        'Próx. a entrar',
+      'asignado':                 'Asignado',
+    };
+    const STATUS_COLORS = {
+      'en dibujo':                ['#dbeafe', '#1e40af'],
+      'revision de constructivo': ['#ede9fe', '#5b21b6'],
+      'enviado a aprobacion':     ['#f3f4f6', '#374151'],
+      'aprobado':                 ['#fef3c7', '#92400e'],
+      'proximos a entrar':        ['#f3f4f6', '#6b7280'],
+      'asignado':                 ['#f3f4f6', '#6b7280'],
+    };
+
     // ── Jr workload ──────────────────────────────────────────
     const jrLoad = {};
     for (const jr of this.JR_LIST) {
@@ -1133,19 +1162,33 @@ const Schedule = {
       return               { dot: '🔴', label: 'Saturado',    cls: 'load-hi'  };
     };
 
-    // ── Section 1: Jr status cards ───────────────────────────
+    // ── Section 1: Jr status cards (Fix 1 — 3-line layout) ──
     const jrCardsHtml = this.JR_LIST.map(jr => {
       const load  = jrLoad[jr];
       const info  = loadInfo(load.niveles);
       const color = DESIGNER_COLORS[jr] || '#888';
-      const rows  = load.items.length === 0
+
+      const itemRows = load.items.length === 0
         ? `<p class="asign-empty-msg">Sin ítems activos</p>`
-        : load.items.map(i =>
-            `<div class="asign-item-row">
-               <span class="asign-item-niv">${i.nivel !== null ? `N${fmtNum(i.nivel)}` : '—'}</span>
-               <span class="asign-item-name">${esc(i.name)}</span>
-               <span class="asign-item-proj">${esc(i.project || '')}</span>
-             </div>`).join('');
+        : load.items.map(i => {
+            const opStr  = i.op ? `OP ${i.op}` : '';
+            const [sbg, sfg] = STATUS_COLORS[i.status] || ['#f3f4f6', '#374151'];
+            const slabel = STATUS_LABEL[i.status] || i.status;
+            const niv    = i.nivel !== null ? `N${fmtNum(i.nivel)}` : '—';
+            return `
+              <div class="asign-jr-item">
+                <div class="asign-jr-item-line1">
+                  <span class="asign-jr-item-name">${esc(i.name)}</span>
+                  ${opStr ? `<span class="asign-jr-item-op">${esc(opStr)}</span>` : ''}
+                </div>
+                <div class="asign-jr-item-proj">${esc(i.project || '—')}</div>
+                <div class="asign-jr-item-meta">
+                  <span class="asign-jr-niv-badge">${esc(niv)}</span>
+                  <span class="asign-jr-status-badge" style="background:${sbg};color:${sfg}">${esc(slabel)}</span>
+                </div>
+              </div>`;
+          }).join('');
+
       return `
         <div class="asign-jr-card">
           <div class="asign-jr-header">
@@ -1154,56 +1197,89 @@ const Schedule = {
             <span class="asign-load-indicator ${info.cls}">${info.dot} ${info.label}</span>
             <span class="asign-jr-stats">${fmtNum(load.niveles)} niv. · ${load.items.length} ítem${load.items.length !== 1 ? 's' : ''}</span>
           </div>
-          <div class="asign-jr-items">${rows}</div>
+          <div class="asign-jr-items">${itemRows}</div>
         </div>`;
     }).join('');
 
-    // ── Section 2: Sr-only items ─────────────────────────────
-    const srOnlyTasks = this._apiTasks.filter(t =>
-      t.allDesigners.length > 0 &&
-      t.allDesigners.every(d => this.SR_LIST.includes(d))
+    // ── Section 2: Items needing a Jr (Fix 2 + Fix 3) ────────
+    // All active tasks that do NOT have a Jr assigned yet
+    const needsJr = this._apiTasks.filter(t =>
+      !t.allDesigners.some(d => this.JR_LIST.includes(d))
     );
 
+    // Split into Sr-buckets vs "no Sr" bucket
     const bySr = {};
     for (const sr of this.SR_LIST) bySr[sr] = [];
-    for (const task of srOnlyTasks) {
+    const noSrTasks = [];
+
+    for (const task of needsJr) {
       const sr = task.allDesigners.find(d => this.SR_LIST.includes(d));
       if (sr) bySr[sr].push(task);
+      else    noSrTasks.push(task);
     }
 
+    // Jr dropdown helper
     const jrOptionsHtml = (currentDraft) =>
-      `<option value="">Asignar a…</option>` +
+      `<option value="">Asignar Jr…</option>` +
       this.JR_LIST.map(jr => {
         const info = loadInfo(jrLoad[jr].niveles);
         const sel  = currentDraft?.jrName === jr ? 'selected' : '';
         return `<option value="${esc(jr)}" ${sel}>${esc(jr)} — ${info.dot} ${fmtNum(jrLoad[jr].niveles)} niv.</option>`;
       }).join('');
 
+    // Render one item row with Asignar dropdown
+    const renderPendingRow = (task, sr) => {
+      const draft    = this._asignDraft.get(task.taskId);
+      const hasDraft = !!draft;
+      const [sbg, sfg] = STATUS_COLORS[task.status] || ['#f3f4f6', '#374151'];
+      const slabel = STATUS_LABEL[task.status] || task.status;
+      const niv    = task.nivel !== null ? `N${fmtNum(task.nivel)}` : '—';
+      const opStr  = task.op ? `OP ${task.op}` : '';
+      return `
+        <div class="asign-pending-row${hasDraft ? ' has-draft' : ''}" data-task-id="${esc(task.taskId)}">
+          <div class="asign-prow-info">
+            <div class="asign-prow-name">${esc(task.name)}${opStr ? ` <span class="asign-prow-op">${esc(opStr)}</span>` : ''}</div>
+            <div class="asign-prow-meta">
+              <span class="asign-prow-niv">${esc(niv)}</span>
+              <span class="asign-prow-status" style="background:${sbg};color:${sfg}">${esc(slabel)}</span>
+            </div>
+          </div>
+          <select class="asign-assign-select"
+            data-task-id="${esc(task.taskId)}"
+            data-task-name="${esc(task.name)}"
+            data-sr="${esc(sr || '')}">
+            ${jrOptionsHtml(draft)}
+          </select>
+          ${hasDraft ? `<span class="asign-draft-tag">✎ ${esc(draft.jrName)}</span>` : ''}
+        </div>`;
+    };
+
+    // Render collapsible project groups within one Sr block
+    const renderProjGroups = (tasks, keyPrefix) => {
+      const projMap = new Map();
+      for (const t of tasks) {
+        const proj = t.project || '(Sin proyecto)';
+        if (!projMap.has(proj)) projMap.set(proj, []);
+        projMap.get(proj).push(t);
+      }
+      return Array.from(projMap.entries()).map(([proj, ptasks], pi) => {
+        const projId = `asign-proj-${keyPrefix}-${pi}`;
+        const n = ptasks.length;
+        const rows = ptasks.map(t => renderPendingRow(t, keyPrefix)).join('');
+        return `
+          <div class="asign-proj-row" data-proj-id="${projId}" data-expanded="false">
+            <span class="asign-proj-arrow">▶</span>
+            <span class="asign-proj-name">${esc(proj)}</span>
+            <span class="asign-proj-count">${n} ítem${n !== 1 ? 's' : ''} sin Jr</span>
+          </div>
+          <div class="asign-proj-items" id="${projId}" style="display:none">${rows}</div>`;
+      }).join('');
+    };
+
     const srSections = this.SR_LIST.map(sr => {
       const tasks = bySr[sr];
       if (!tasks.length) return '';
       const color = DESIGNER_COLORS[sr] || '#888';
-      const rows  = tasks.map(task => {
-        const draft    = this._asignDraft.get(task.taskId);
-        const hasDraft = !!draft;
-        const pendBadge = task.pending
-          ? `<span class="asign-pend-badge">Pendiente</span>`
-          : '';
-        return `
-          <div class="asign-pending-row${hasDraft ? ' has-draft' : ''}" data-task-id="${esc(task.taskId)}">
-            <span class="asign-item-niv">${task.nivel !== null ? `N${fmtNum(task.nivel)}` : '—'}</span>
-            <span class="asign-pending-name">${esc(task.name)}${pendBadge}</span>
-            <span class="asign-pending-proj">${esc(task.project || '')}</span>
-            <select class="asign-assign-select"
-              data-task-id="${esc(task.taskId)}"
-              data-task-name="${esc(task.name)}"
-              data-sr="${esc(sr)}">
-              ${jrOptionsHtml(draft)}
-            </select>
-            ${hasDraft ? `<span class="asign-draft-tag">✎ ${esc(draft.jrName)}</span>` : ''}
-          </div>`;
-      }).join('');
-
       return `
         <div class="asign-sr-block">
           <div class="asign-sr-title">
@@ -1211,29 +1287,49 @@ const Schedule = {
             ${esc(sr)}
             <span class="sched-pair-count">${tasks.length} ítem${tasks.length !== 1 ? 's' : ''} sin Jr</span>
           </div>
-          ${rows}
+          ${renderProjGroups(tasks, sr.replace(/\s+/g, ''))}
         </div>`;
     }).join('');
 
-    const noSrOnly = srOnlyTasks.length === 0;
+    const noSrSection = noSrTasks.length === 0 ? '' : `
+      <div class="asign-sr-block">
+        <div class="asign-sr-title">
+          <span class="sched-pair-dot" style="background:#9ca3af"></span>
+          Sin Sr asignado
+          <span class="sched-pair-count">${noSrTasks.length} ítem${noSrTasks.length !== 1 ? 's' : ''}</span>
+        </div>
+        ${renderProjGroups(noSrTasks, 'nosr')}
+      </div>`;
 
-    // ── Section 3: Draft bar ─────────────────────────────────
+    const hasAny = needsJr.length > 0;
     const draftBarHtml = this._asignDraft.size > 0 ? this._buildDraftBar() : '';
 
     container.innerHTML = `
       <div class="asign-wrap">
-
         <div class="asign-section-title">Estado actual de Juniors</div>
         <div class="asign-jr-grid">${jrCardsHtml}</div>
 
         <div class="asign-section-title" style="margin-top:32px">Ítems sin Jr asignado</div>
-        ${noSrOnly
-          ? `<p class="asign-empty-msg" style="padding:16px 0">Todos los ítems activos tienen Jr asignado. 🎉</p>`
-          : `<div class="asign-sr-list">${srSections}</div>`
+        ${hasAny
+          ? `<div class="asign-sr-list">${srSections}${noSrSection}</div>`
+          : `<p class="asign-empty-msg" style="padding:16px 0">Todos los ítems activos tienen Jr asignado. 🎉</p>`
         }
-
       </div>
       <div id="asign-draft-bar" class="asign-draft-bar${this._asignDraft.size > 0 ? ' visible' : ''}">${draftBarHtml}</div>`;
+
+    // ── Bind project collapsible rows ────────────────────────
+    container.querySelectorAll('.asign-proj-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const projId   = row.dataset.projId;
+        const expanded = row.dataset.expanded === 'true';
+        row.dataset.expanded = expanded ? 'false' : 'true';
+        const arrow = row.querySelector('.asign-proj-arrow');
+        if (arrow) arrow.textContent = expanded ? '▶' : '▼';
+        row.classList.toggle('expanded', !expanded);
+        const itemsEl = document.getElementById(projId);
+        if (itemsEl) itemsEl.style.display = expanded ? 'none' : 'block';
+      });
+    });
 
     // ── Bind dropdown changes ────────────────────────────────
     container.querySelectorAll('.asign-assign-select').forEach(sel => {
@@ -1262,8 +1358,8 @@ const Schedule = {
         // Update draft bar
         const bar = document.getElementById('asign-draft-bar');
         if (bar) {
-          bar.innerHTML  = this._asignDraft.size > 0 ? this._buildDraftBar() : '';
-          bar.className  = `asign-draft-bar${this._asignDraft.size > 0 ? ' visible' : ''}`;
+          bar.innerHTML = this._asignDraft.size > 0 ? this._buildDraftBar() : '';
+          bar.className = `asign-draft-bar${this._asignDraft.size > 0 ? ' visible' : ''}`;
           this._bindDraftBar(container, bar);
         }
       });
