@@ -100,6 +100,12 @@ const App = {
 
     // Show last sync info if already synced
     this._updateSyncInfo();
+
+    // ── Auto-switch to API mode and sync on page load ─────────
+    if (ClickUpIntegration.getApiKey() && ClickUpIntegration.getListId()) {
+      switchMode('api');
+      this._syncClickUp();
+    }
   },
 
   async _syncClickUp() {
