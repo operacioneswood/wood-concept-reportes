@@ -65,7 +65,7 @@ const Schedule = {
     try {
       const raw = localStorage.getItem(this.SCHED_KEY);
       if (raw) {
-        const p = JSON.parse(raw);
+        const p  = JSON.parse(raw);
         const dt = this.DEFAULT_TIMES;
         const tiers = Array.isArray(p.times?.drawTiers) && p.times.drawTiers.length === 5
           ? p.times.drawTiers.map((t, i) => ({ maxNivel: dt.drawTiers[i].maxNivel, days: +t.days || dt.drawTiers[i].days }))
@@ -100,6 +100,7 @@ const Schedule = {
 
   // ── CSV parsing ────────────────────────────────────────────
   // Returns items with all 5 ClickUp date fields as Date|null.
+  // Items with status 'proximos a entrar' or 'asignado' are flagged pending:true.
 
   _parseCSV(rows) {
     if (!rows || rows.length < 2) return [];
@@ -123,8 +124,12 @@ const Schedule = {
 
     const getDate = (row, i) => i !== -1 ? parseCUDate(row[i] || '') : null;
 
-    const ACTIVE = new Set(['en dibujo', 'enviado a aprobacion',
-      'revision de constructivo', 'aprobado', 'proximos a entrar']);
+    // 'asignado' and 'proximos a entrar' are included but flagged as pending (no Gantt bars)
+    const ACTIVE = new Set([
+      'en dibujo', 'enviado a aprobacion',
+      'revision de constructivo', 'aprobado',
+      'proximos a entrar', 'asignado',
+    ]);
 
     const items = [];
     for (let r = 1; r < rows.length; r++) {
@@ -136,17 +141,19 @@ const Schedule = {
       const designers = mapDesignersCU(row[iAsgn] || '');
       if (!designers.length) continue;
 
-      const nivelRaw = iNivel !== -1 ? (row[iNivel] || '').trim() : '';
-      const nivel    = nivelRaw ? (parseFloat(nivelRaw) || null) : null;
-      const name     = iName   !== -1 ? (row[iName]   || '').trim() : '';
-      const project  = iParent !== -1 ? (row[iParent] || '').trim() : '';
-      const corr     = iCorr   !== -1 ? (parseInt(row[iCorr] || '0') || 0) : 0;
+      const nivelRaw  = iNivel !== -1 ? (row[iNivel] || '').trim() : '';
+      const nivel     = nivelRaw ? (parseFloat(nivelRaw) || null) : null;
+      const name      = iName   !== -1 ? (row[iName]   || '').trim() : '';
+      const project   = iParent !== -1 ? (row[iParent] || '').trim() : '';
+      const corr      = iCorr   !== -1 ? (parseInt(row[iCorr] || '0') || 0) : 0;
+      const isPending = rawStatus === 'proximos a entrar' || rawStatus === 'asignado';
 
       for (const designer of designers) {
         items.push({
           id:              `${name}|${project}`,
           name, project, nivel,
           status:          rawStatus,
+          pending:         isPending,
           corrections:     corr,
           designer,
           fechaInicio:     getDate(row, iFechaInicio),
@@ -164,8 +171,11 @@ const Schedule = {
 
   _parseAPI(rawTasks, fieldIds) {
     const fids = fieldIds || {};
-    const ACTIVE = new Set(['en dibujo', 'enviado a aprobacion',
-      'revision de constructivo', 'aprobado', 'proximos a entrar']);
+    const ACTIVE = new Set([
+      'en dibujo', 'enviado a aprobacion',
+      'revision de constructivo', 'aprobado',
+      'proximos a entrar', 'asignado',
+    ]);
     const nameById = new Map((rawTasks || []).map(t => [t.id, t.name || '']));
 
     // Convert a Unix-ms timestamp (number or string) to Date or null.
@@ -187,12 +197,12 @@ const Schedule = {
         .filter(Boolean);
       if (!designers.length) continue;
 
-      const nivRaw  = _cuFieldVal(t, fids.nivel);
-      const nivel   = nivRaw !== '' ? (parseFloat(nivRaw) || null) : null;
-      const corrRaw = _cuFieldVal(t, fids.corrections);
-      const parent  = t.parent ? (nameById.get(t.parent) || '') : (t.folder?.name || t.list?.name || '');
+      const nivRaw   = _cuFieldVal(t, fids.nivel);
+      const nivel    = nivRaw !== '' ? (parseFloat(nivRaw) || null) : null;
+      const corrRaw  = _cuFieldVal(t, fids.corrections);
+      const parent   = t.parent ? (nameById.get(t.parent) || '') : (t.folder?.name || t.list?.name || '');
+      const isPending = rawStatus === 'proximos a entrar' || rawStatus === 'asignado';
 
-      // Date fields: start_date is a standard ClickUp field; others are custom.
       const fechaInicio     = toDate(t.start_date);
       const finDibujo       = toDate(_cuFieldVal(t, fids.finDibujo));
       const envioAprobacion = toDate(_cuFieldVal(t, fids.envioAprobacion));
@@ -206,6 +216,7 @@ const Schedule = {
           project: parent,
           nivel,
           status:          rawStatus,
+          pending:         isPending,
           corrections:     parseInt(corrRaw || '0') || 0,
           designer,
           fechaInicio,
@@ -240,8 +251,8 @@ const Schedule = {
   },
 
   _applyPriority(items, pairKey) {
-    const order   = this._cfg.priority[pairKey] || [];
-    const rankOf  = new Map(order.map((id, i) => [id, i]));
+    const order  = this._cfg.priority[pairKey] || [];
+    const rankOf = new Map(order.map((id, i) => [id, i]));
     return [...items].sort((a, b) => {
       const ai = rankOf.has(a.id) ? rankOf.get(a.id) : Infinity;
       const bi = rankOf.has(b.id) ? rankOf.get(b.id) : Infinity;
@@ -250,108 +261,132 @@ const Schedule = {
   },
 
   // Each item is calculated independently using its own ClickUp dates.
-  // No sequential chaining — each item's phases are anchored to real dates.
   _calcTimeline(pair, orderedItems) {
     const times  = this._cfg.times;
     const srOnly = !pair.jr;
     return orderedItems.map(item => this._calcItemDates(item, times, srOnly));
   },
 
-  // ── Phase date helper ──────────────────────────────────────
+  // Build the 5-phase timeline for one item.
   //
-  // Returns { date: Date, source: 'clickup'|'completed'|'overdue'|'estimated' }.
-  // isCurrentPhase: true when the item's status shows it's still in this phase.
-  _phaseEnd(cuDate, startDate, standardDays, isCurrentPhase) {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    if (cuDate) {
-      if (cuDate > today) return { date: cuDate, source: 'clickup' };
-      // Past ClickUp date — overdue if status hasn't advanced past this phase.
-      return { date: cuDate, source: isCurrentPhase ? 'overdue' : 'completed' };
-    }
-    return { date: this._addBizDays(startDate, standardDays), source: 'estimated' };
-  },
-
-  // Build the 5-phase timeline for one item using ClickUp dates where available.
-  // Completed phases are shown only when a real ClickUp date exists for them.
+  // Pending items (proximos a entrar / asignado):
+  //   → { phases: [], fabricaDate: null, currentPhase: 'Pendiente de inicio' }
+  //
+  // Completed phase (status has advanced past it):
+  //   → Shown only if a real past ClickUp date exists; otherwise silently skipped.
+  //   → startDate = previous phase end (or estimated backwards for phase 1).
+  //
+  // Current phase (status = this phase):
+  //   → Always anchored to today: startDate = today.
+  //   → endDate = future ClickUp date if available, else today + standard days.
+  //   → Past ClickUp dates for the current phase are IGNORED (extended forward from today).
+  //
+  // Future phase (status is before this phase):
+  //   → startDate = lastEnd (end of previous phase).
+  //   → endDate = future ClickUp date if available, else estimate from lastEnd.
   _calcItemDates(item, times, srOnly) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const s = normStr(item.status || '');
+    const MS    = 86400000;
+    const s     = normStr(item.status || '');
 
-    const skip1 = s === 'revision de constructivo' || s === 'enviado a aprobacion' || s === 'aprobado';
-    const skip2 = s === 'enviado a aprobacion' || s === 'aprobado';
-    const skip3 = s === 'aprobado';
+    // Pending items: no Gantt bars, no fabricaDate
+    if (item.pending) {
+      return { ...item, phases: [], fabricaDate: null, currentPhase: 'Pendiente de inicio' };
+    }
 
-    const phases = [];
-    let lastEnd = today;
+    // Determine which phase (1–4) is currently active based on status.
+    // Phase 5 (Sr elabora OP + fábrica) is always a future phase.
+    const curr =
+      s === 'en dibujo'                ? 1 :
+      s === 'revision de constructivo' ? 2 :
+      s === 'enviado a aprobacion'     ? 3 :
+      s === 'aprobado'                 ? 4 : 1;
+
+    const phases   = [];
+    let   lastEnd  = today;
+
+    const drawDays = this._getDrawDays(item.nivel, times);
+    const label1   = srOnly ? 'Sr dibujando'    : 'Jr dibujando';
+    const label4   = srOnly ? 'Sr correcciones' : 'Jr correcciones';
+    const corrDays = Math.max(0.5, (item.corrections || 0) * times.jrCorr);
+
+    // ── Phase helpers ──────────────────────────────────────────
+
+    // Completed phase: render only when we have a real past ClickUp date.
+    // approxDays is used to estimate startDate when lastEnd has not yet been set to a past date.
+    const pushCompleted = (id, label, cuDate, approxDays) => {
+      if (!cuDate || cuDate > today) return; // no real past date → skip silently
+      const startDate = lastEnd <= cuDate
+        ? lastEnd
+        : new Date(cuDate.getTime() - Math.round(approxDays * 1.4) * MS);
+      phases.push({ id, label, startDate, endDate: cuDate, source: 'completed' });
+      lastEnd = cuDate;
+    };
+
+    // Current phase: anchored to today. Past ClickUp dates are ignored.
+    const pushCurrent = (id, label, cuDate, standardDays) => {
+      let end, src;
+      if (cuDate && cuDate > today) {
+        end = cuDate; src = 'clickup';
+      } else {
+        end = this._addBizDays(today, standardDays); src = 'estimated';
+      }
+      phases.push({ id, label, startDate: today, endDate: end, source: src });
+      lastEnd = end;
+    };
+
+    // Future phase: starts at lastEnd. Past ClickUp dates are ignored.
+    const pushFuture = (id, label, cuDate, standardDays) => {
+      let end, src;
+      if (cuDate && cuDate > today) {
+        end = cuDate; src = 'clickup';
+      } else {
+        end = this._addBizDays(lastEnd, standardDays); src = 'estimated';
+      }
+      phases.push({ id, label, startDate: lastEnd, endDate: end, source: src });
+      lastEnd = end;
+    };
+
+    // ── Build phases in order ──────────────────────────────────
 
     // Phase 1: dibujando
-    const p1Start = item.fechaInicio || today;
-    if (skip1) {
-      if (item.finDibujo) {
-        phases.push({ id: 1, label: srOnly ? 'Sr dibujando' : 'Jr dibujando',
-          startDate: p1Start, endDate: item.finDibujo, source: 'completed' });
-        lastEnd = item.finDibujo;
-      }
-      // No date → skip silently; lastEnd stays at today.
-    } else {
-      const drawDays  = this._getDrawDays(item.nivel, times);
-      const isCurrent = s === 'en dibujo' || s === 'proximos a entrar';
-      const { date: end, source } = this._phaseEnd(item.finDibujo, p1Start, drawDays, isCurrent);
-      phases.push({ id: 1, label: srOnly ? 'Sr dibujando' : 'Jr dibujando',
-        startDate: p1Start, endDate: end, source });
-      lastEnd = end;
-    }
+    if      (curr === 1) pushCurrent  (1, label1, item.finDibujo, drawDays);
+    else                 pushCompleted(1, label1, item.finDibujo, drawDays);
 
     // Phase 2: Sr revisa + envía aprobación
-    if (skip2) {
-      if (item.envioAprobacion) {
-        phases.push({ id: 2, label: 'Sr revisa + envía',
-          startDate: lastEnd, endDate: item.envioAprobacion, source: 'completed' });
-        lastEnd = item.envioAprobacion;
-      }
-    } else {
-      const isCurrent = s === 'revision de constructivo';
-      const { date: end, source } = this._phaseEnd(item.envioAprobacion, lastEnd, 1, isCurrent);
-      phases.push({ id: 2, label: 'Sr revisa + envía',
-        startDate: lastEnd, endDate: end, source });
-      lastEnd = end;
-    }
+    if      (curr === 2) pushCurrent  (2, 'Sr revisa + envía', item.envioAprobacion, 1);
+    else if (curr > 2)   pushCompleted(2, 'Sr revisa + envía', item.envioAprobacion, 1);
+    else                 pushFuture   (2, 'Sr revisa + envía', item.envioAprobacion, 1);
 
     // Phase 3: En aprobación (cliente)
-    if (skip3) {
-      if (item.aprobado) {
-        phases.push({ id: 3, label: 'En aprobación',
-          startDate: lastEnd, endDate: item.aprobado, source: 'completed' });
-        lastEnd = item.aprobado;
-      }
-    } else {
-      const isCurrent = s === 'enviado a aprobacion';
-      const { date: end, source } = this._phaseEnd(item.aprobado, lastEnd, times.clientWait, isCurrent);
-      phases.push({ id: 3, label: 'En aprobación',
-        startDate: lastEnd, endDate: end, source });
+    if      (curr === 3) pushCurrent  (3, 'En aprobación', item.aprobado, times.clientWait);
+    else if (curr > 3)   pushCompleted(3, 'En aprobación', item.aprobado, times.clientWait);
+    else                 pushFuture   (3, 'En aprobación', item.aprobado, times.clientWait);
+
+    // Phase 4: correcciones — no ClickUp date field; anchored to today when current
+    if (curr === 4) {
+      const end = this._addBizDays(today, corrDays);
+      phases.push({ id: 4, label: label4, startDate: today, endDate: end, source: 'estimated' });
       lastEnd = end;
+    } else {
+      pushFuture(4, label4, null, corrDays);
     }
 
-    // Phase 4: correcciones (always estimated — no ClickUp field for this phase)
-    const corrDays = Math.max(0.5, (item.corrections || 0) * times.jrCorr);
-    const p4End = this._addBizDays(lastEnd, corrDays);
-    phases.push({ id: 4, label: srOnly ? 'Sr correcciones' : 'Jr correcciones',
-      startDate: lastEnd, endDate: p4End, source: 'estimated' });
-    lastEnd = p4End;
+    // Phase 5: Sr elabora OP + fábrica — always a future phase (no status for it)
+    pushFuture(5, 'Sr elabora OP + fábrica', item.envioFabrica, times.srElabOP);
 
-    // Phase 5: Sr elabora OP + envía fábrica
-    const { date: p5End, source: p5Src } =
-      this._phaseEnd(item.envioFabrica, lastEnd, times.srElabOP, false);
-    phases.push({ id: 5, label: 'Sr elabora OP + fábrica',
-      startDate: lastEnd, endDate: p5End, source: p5Src });
-    lastEnd = p5End;
-
-    return { ...item, phases, fabricaDate: lastEnd, currentPhase: this._currentPhase(s, srOnly) };
+    return {
+      ...item,
+      phases,
+      fabricaDate: lastEnd,
+      currentPhase: this._currentPhase(s, srOnly),
+    };
   },
 
   _currentPhase(status, srOnly) {
     const map = {
-      'proximos a entrar':        srOnly ? 'Sr dibujando'    : 'Jr dibujando',
+      'proximos a entrar':        'Pendiente de inicio',
+      'asignado':                 'Pendiente de inicio',
       'en dibujo':                srOnly ? 'Sr dibujando'    : 'Jr dibujando',
       'revision de constructivo': 'Sr revisa + envía',
       'enviado a aprobacion':     'En aprobación',
@@ -396,9 +431,9 @@ const Schedule = {
 
     const pairs       = this._getPairs();
     const pairResults = pairs.map(pair => {
-      const pairKey = `${pair.sr}|${pair.jr || ''}`;
-      const raw     = this._itemsForPair(pair);
-      const ordered = this._applyPriority(raw, pairKey);
+      const pairKey  = `${pair.sr}|${pair.jr || ''}`;
+      const raw      = this._itemsForPair(pair);
+      const ordered  = this._applyPriority(raw, pairKey);
       const timeline = this._calcTimeline(pair, ordered);
       return { pair, pairKey, items: ordered, timeline };
     });
@@ -418,7 +453,8 @@ const Schedule = {
     body.querySelectorAll('.sched-tab').forEach(btn => {
       btn.addEventListener('click', () => {
         this._view = btn.dataset.view;
-        body.querySelectorAll('.sched-tab').forEach(b => b.classList.toggle('active', b.dataset.view === this._view));
+        body.querySelectorAll('.sched-tab').forEach(b =>
+          b.classList.toggle('active', b.dataset.view === this._view));
         this._renderContent(document.getElementById('sched-content'), pairResults);
       });
     });
@@ -449,7 +485,7 @@ const Schedule = {
     const { pairs, times } = this._cfg;
 
     const pairRows = this.SR_LIST.map(sr => {
-      const cur = pairs[sr] || '';
+      const cur  = pairs[sr] || '';
       const opts = `<option value="">Sin asignar</option>` +
         this.JR_LIST.map(jr => {
           const owner = Object.entries(pairs).find(([s, j]) => j === jr && s !== sr)?.[0];
@@ -468,12 +504,12 @@ const Schedule = {
     }).join('');
 
     const fixedRows = [
-      { key: 'srReview',     label: 'Sr revisa dibujo',         val: times.srReview     },
-      { key: 'srSend',       label: 'Sr envía aprobación',       val: times.srSend       },
-      { key: 'clientWait',   label: 'Espera cliente (hábiles)',  val: times.clientWait   },
-      { key: 'jrCorr',       label: 'Jr correcciones / ronda',   val: times.jrCorr       },
-      { key: 'srReviewCorr', label: 'Sr revisa correcciones',    val: times.srReviewCorr },
-      { key: 'srElabOP',     label: 'Sr elabora OP + fábrica',  val: times.srElabOP     },
+      { key: 'srReview',     label: 'Sr revisa dibujo',        val: times.srReview     },
+      { key: 'srSend',       label: 'Sr envía aprobación',      val: times.srSend       },
+      { key: 'clientWait',   label: 'Espera cliente (hábiles)', val: times.clientWait   },
+      { key: 'jrCorr',       label: 'Jr correcciones / ronda',  val: times.jrCorr       },
+      { key: 'srReviewCorr', label: 'Sr revisa correcciones',   val: times.srReviewCorr },
+      { key: 'srElabOP',     label: 'Sr elabora OP + fábrica', val: times.srElabOP     },
     ].map(ft => `<tr>
       <td class="cfg-time-label">${esc(ft.label)}</td>
       <td><input class="cfg-time-input" type="number" min="0.5" max="30" step="0.5" data-key="${ft.key}" value="${ft.val}"></td>
@@ -531,11 +567,24 @@ const Schedule = {
     });
   },
 
-  // ── View 1: Gantt (grouped by project, real ClickUp dates) ─
+  // ── View 1: Gantt ──────────────────────────────────────────
+  //
+  // Coordinate system:
+  //   dayToX(d)   = LABEL_W + (d - minDay) * PX
+  //     → inner-wrapper coords (includes label column width).
+  //     → used only for the today vertical line (positioned in the inner wrapper).
+  //
+  //   tlDateX(dt) = ((dt - today) / MS - minDay) * PX
+  //     → timeline-div coords (does NOT include LABEL_W).
+  //     → used for all bars, flags, span bars inside the flex:1 timeline divs.
+  //
+  // The axis label row and every content row use display:flex with a sticky
+  // label div (position:sticky; left:0) and a flex:1 timeline div.
+  // This gives a frozen label column during horizontal scroll.
 
   _renderGantt(container, pairResults) {
-    const LABEL_W = 200;
-    const PX      = 22;     // pixels per calendar day
+    const LABEL_W = 220;    // px — frozen label column width
+    const PX      = 28;     // px per calendar day
     const MS      = 86400000;
     const today   = new Date(); today.setHours(0, 0, 0, 0);
 
@@ -545,26 +594,28 @@ const Schedule = {
       return;
     }
 
-    // Day-offset range (relative to today = 0)
-    let minDay = 0, maxDay = 7;
+    // X-axis always starts 1 calendar day before today (fixed).
+    const minDay = -1;
+
+    // Right edge: at least 60 calendar days; otherwise furthest fabricaDate + 10.
+    let maxFabricaDay = 0;
     for (const { timeline } of active) {
       for (const item of timeline) {
-        for (const ph of item.phases) {
-          const s = (ph.startDate - today) / MS;
-          const e = (ph.endDate   - today) / MS;
-          if (s < minDay) minDay = s;
-          if (e > maxDay) maxDay = e;
+        if (item.fabricaDate) {
+          const d = Math.ceil((item.fabricaDate.getTime() - today.getTime()) / MS);
+          if (d > maxFabricaDay) maxFabricaDay = d;
         }
       }
     }
-    minDay = Math.floor(minDay) - 2;
-    maxDay = Math.ceil(maxDay)  + 3;
+    const maxDay = Math.max(60, maxFabricaDay + 10);
+    // +200 px right padding so nothing gets clipped at the scroll edge
+    const totalW = LABEL_W + (maxDay - minDay) * PX + 200;
 
+    // Two coordinate helpers (see comment above):
     const dayToX  = d  => LABEL_W + (d - minDay) * PX;
-    const dateToX = dt => dayToX((dt - today) / MS);
-    const totalW  = LABEL_W + (maxDay - minDay) * PX;
+    const tlDateX = dt => ((dt.getTime() - today.getTime()) / MS - minDay) * PX;
 
-    // Phase base palettes
+    // Phase colour palette
     const PC = {
       1: { light: '#dbeafe', dark: '#1d4ed8', text: '#1e3a8a', base: '#3b82f6' },
       2: { light: '#ede9fe', dark: '#5b21b6', text: '#4c1d95', base: '#7c3aed' },
@@ -574,53 +625,45 @@ const Schedule = {
     };
 
     const barStyle = ph => {
-      const c   = PC[ph.id] || PC[1];
-      const src = ph.source;
-      if (src === 'completed') return { bg: '#e5e7eb', bd: '1px solid #9ca3af', tx: '#6b7280', op: '0.65' };
-      if (src === 'overdue')   return { bg: '#fee2e2', bd: '2px solid #ef4444', tx: '#991b1b', op: '1'    };
-      if (src === 'clickup')   return { bg: c.dark,   bd: `2px solid ${c.base}`, tx: '#fff',  op: '1'    };
-      /* estimated */          return { bg: c.light,  bd: `1px dashed ${c.base}`, tx: c.text, op: '0.9'  };
+      const c = PC[ph.id] || PC[1];
+      if (ph.source === 'completed') return { bg: '#e5e7eb', bd: '1px solid #9ca3af', tx: '#6b7280', op: '0.65' };
+      if (ph.source === 'clickup')   return { bg: c.dark,   bd: `2px solid ${c.base}`, tx: '#fff',  op: '1'    };
+      /* estimated */                return { bg: c.light,  bd: `1px dashed ${c.base}`, tx: c.text, op: '0.9'  };
     };
 
-    const srcIcon = src => src === 'clickup' ? '📅' : src === 'overdue' ? '⚠' : '';
-
-    const fmtD = d => d.toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const fmtD    = d => d.toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const tooltip = ph => {
-      const d = fmtD(ph.endDate);
-      const map = {
-        clickup:   `Fecha en ClickUp: ${d}`,
-        estimated: `Estimado por tiempo estándar: ${d}`,
-        completed: `Completado: ${d}`,
-        overdue:   `⚠ Atrasado — fecha ClickUp: ${d}`,
-      };
+      const d   = fmtD(ph.endDate);
+      const map = { clickup: `Fecha en ClickUp: ${d}`, estimated: `Estimado: ${d}`, completed: `Completado: ${d}` };
       return `${ph.label} — ${map[ph.source] || d}`;
     };
 
-    // Axis grid lines (every 7 calendar days)
-    const gridLines = [];
-    const firstGrid = Math.ceil(minDay / 7) * 7;
+    // Axis date labels — positioned in timeline-div coords (no LABEL_W).
+    const axisLabels = [];
+    const firstGrid  = Math.ceil(minDay / 7) * 7;
     for (let d = firstGrid; d <= maxDay; d += 7) {
-      const x  = dayToX(d);
-      const dt = new Date(today.getTime() + d * MS);
+      const x   = (d - minDay) * PX;
+      const dt  = new Date(today.getTime() + d * MS);
       const lbl = d === 0 ? 'Hoy'
         : dt.toLocaleDateString('es', { day: '2-digit', month: 'short' });
-      gridLines.push(
+      axisLabels.push(
         `<div style="position:absolute;left:${x}px;top:0;bottom:0;width:1px;background:var(--divider);pointer-events:none"></div>`,
         `<div style="position:absolute;left:${x}px;bottom:3px;font-size:10px;color:var(--faint);transform:translateX(-50%);white-space:nowrap;pointer-events:none">${lbl}</div>`
       );
     }
 
-    // Today line
-    const todayX    = dayToX(0);
-    const todayLine = `<div class="gantt-today-vline" style="position:absolute;left:${todayX}px;top:0;bottom:0;width:2px;background:#ef4444;z-index:10;pointer-events:none">
+    // Today vertical line — positioned in inner-wrapper coords (includes LABEL_W).
+    const todayLineX = dayToX(0); // = LABEL_W + 1 * PX
+    const todayLine  = `<div style="position:absolute;left:${todayLineX}px;top:0;bottom:0;width:2px;background:#ef4444;z-index:10;pointer-events:none">
       <div style="position:absolute;top:2px;left:4px;font-size:9px;color:#ef4444;font-weight:700;white-space:nowrap">Hoy</div>
     </div>`;
 
+    // ── Build HTML for each Sr+Jr pair ─────────────────────────
     const pairsHTML = active.map(({ pair, pairKey, timeline }) => {
       const title = pair.jr ? `${pair.sr} + ${pair.jr}` : `${pair.sr} (sin Jr)`;
       const color = DESIGNER_COLORS[pair.sr] || '#888';
 
-      // Group items by project, preserving priority order
+      // Group items by project while preserving priority order.
       const projMap = new Map();
       for (const item of timeline) {
         const proj = item.project || '(Sin proyecto)';
@@ -634,46 +677,54 @@ const Schedule = {
       for (const [proj, projItems] of projMap) {
         const pid = `${pairKey}-p${projIdx++}`;
 
-        // Compute project span from all phase dates
-        const allTs = projItems.flatMap(i => i.phases.flatMap(p => [p.startDate.getTime(), p.endDate.getTime()]));
-        const minTs = Math.min(...allTs);
-        const maxTs = Math.max(...projItems.map(i => i.fabricaDate.getTime()));
-        const fabStr  = new Date(maxTs).toLocaleDateString('es', { day: '2-digit', month: 'short' });
-        const projName = proj.length > 28 ? proj.slice(0, 27) + '…' : proj;
-
-        // Mini phase-distribution bar (4px stacked)
-        const counts = { draw: 0, review: 0, wait: 0, corr: 0, done: 0 };
+        // Mini phase-distribution bar for the project row label.
+        const counts = { pending: 0, draw: 0, review: 0, wait: 0, corr: 0, done: 0 };
         for (const item of projItems) {
           const ph = item.currentPhase;
-          if      (ph.includes('dibujando'))                            counts.draw++;
-          else if (ph.includes('revisa') || ph.includes('envia'))       counts.review++;
-          else if (ph.includes('aprobaci'))                             counts.wait++;
-          else if (ph.includes('correcci'))                             counts.corr++;
-          else                                                          counts.done++;
+          if      (ph === 'Pendiente de inicio')                       counts.pending++;
+          else if (ph.includes('dibujando'))                           counts.draw++;
+          else if (ph.includes('revisa') || ph.includes('envía'))      counts.review++;
+          else if (ph.includes('aprobaci'))                            counts.wait++;
+          else if (ph.includes('correcci'))                            counts.corr++;
+          else                                                         counts.done++;
         }
         const miniSegs = [
-          { n: counts.draw,   bg: '#93c5fd' },
-          { n: counts.review, bg: '#c4b5fd' },
-          { n: counts.wait,   bg: '#d1d5db' },
-          { n: counts.corr,   bg: '#fcd34d' },
-          { n: counts.done,   bg: '#6ee7b7' },
+          { n: counts.pending, bg: '#e5e7eb' },
+          { n: counts.draw,    bg: '#93c5fd' },
+          { n: counts.review,  bg: '#c4b5fd' },
+          { n: counts.wait,    bg: '#d1d5db' },
+          { n: counts.corr,    bg: '#fcd34d' },
+          { n: counts.done,    bg: '#6ee7b7' },
         ].filter(s => s.n > 0)
          .map(s => `<div style="flex:${s.n};background:${s.bg}"></div>`)
          .join('');
 
-        const spanX = dayToX((minTs - today.getTime()) / MS);
-        const flagX = dayToX((maxTs - today.getTime()) / MS);
-        const spanW = Math.max(8, flagX - spanX);
+        // Project span bar — only from items that have phases (not pending).
+        const activeItems = projItems.filter(i => i.phases && i.phases.length > 0);
+        let projTimelineHtml = '';
+        if (activeItems.length > 0) {
+          const allTs  = activeItems.flatMap(i => i.phases.flatMap(p => [p.startDate.getTime(), p.endDate.getTime()]));
+          const minTs  = Math.min(...allTs);
+          const maxTs  = Math.max(...activeItems.map(i => i.fabricaDate.getTime()));
+          const fabStr = new Date(maxTs).toLocaleDateString('es', { day: '2-digit', month: 'short' });
+          const spanX  = tlDateX(new Date(minTs));
+          const flagX  = tlDateX(new Date(maxTs));
+          const spanW  = Math.max(8, flagX - spanX);
+          projTimelineHtml =
+            `<div style="position:absolute;left:${spanX}px;width:${spanW}px;top:50%;transform:translateY(-50%);height:5px;background:#cbd5e1;border-radius:3px"></div>` +
+            `<div title="Est. fábrica: ${fabStr}" style="position:absolute;left:${flagX}px;top:50%;transform:translate(-2px,-50%);font-size:14px;z-index:2;cursor:default">🏁</div>` +
+            `<div style="position:absolute;left:${flagX + 16}px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--muted);white-space:nowrap">${fabStr}</div>`;
+        } else {
+          projTimelineHtml = `<span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--muted)">Solo pendientes</span>`;
+        }
 
-        const projTimelineHtml =
-          `<div style="position:absolute;left:${spanX}px;width:${spanW}px;top:50%;transform:translateY(-50%);height:5px;background:#cbd5e1;border-radius:3px"></div>` +
-          `<div title="Est. fábrica: ${fabStr}" style="position:absolute;left:${flagX}px;top:50%;transform:translate(-2px,-50%);font-size:14px;z-index:2;cursor:default">🏁</div>` +
-          `<div style="position:absolute;left:${flagX + 16}px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--muted);white-space:nowrap">${fabStr}</div>`;
+        const projName = proj.length > 30 ? proj.slice(0, 29) + '…' : proj;
 
+        // Project row (collapsible header) — display:flex with sticky label
         innerHtml += `
           <div class="gantt-proj-row" data-pid="${pid}" data-expanded="false"
-               style="display:flex;align-items:center;min-width:${totalW}px;border-bottom:1px solid var(--divider);background:var(--bg);cursor:pointer;user-select:none">
-            <div style="width:${LABEL_W}px;min-width:${LABEL_W}px;padding:7px 10px;display:flex;align-items:center;gap:7px;flex-shrink:0">
+               style="display:flex;align-items:center;min-width:${totalW}px;border-bottom:1px solid var(--divider);cursor:pointer;user-select:none">
+            <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:4;background:var(--bg);padding:7px 10px;display:flex;align-items:center;gap:7px">
               <span class="gprow-arrow" style="font-size:10px;color:var(--faint);width:10px;flex-shrink:0;transition:transform .15s">▶</span>
               <div style="flex:1;min-width:0">
                 <div style="font-size:12.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(proj)}">${esc(projName)}</div>
@@ -681,20 +732,39 @@ const Schedule = {
               </div>
               <span style="font-size:11px;color:var(--faint);white-space:nowrap;flex-shrink:0">${projItems.length} ítem${projItems.length !== 1 ? 's' : ''}</span>
             </div>
-            <div style="position:relative;flex:1;height:36px">${projTimelineHtml}</div>
+            <div style="position:relative;flex:1;height:36px;overflow:visible">${projTimelineHtml}</div>
           </div>`;
 
+        // Item rows (collapsed by default; display toggled to 'flex' on expand)
         for (let ii = 0; ii < projItems.length; ii++) {
           const item      = projItems[ii];
           const globalIdx = timeline.indexOf(item);
           const nStr      = item.nivel !== null ? `N${item.nivel}` : '—';
 
+          if (item.pending) {
+            // Pending item: badge only, no phase bars
+            innerHtml += `
+              <div class="gantt-row" draggable="true"
+                   data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${globalIdx}" data-pid="${pid}"
+                   style="display:none;min-height:40px;background:#fff">
+                <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:3;background:#fff;padding:5px 10px 5px 28px">
+                  <div style="font-size:12px;font-weight:500;line-height:1.3;word-break:break-word">${esc(item.name)}</div>
+                  <div style="font-size:10px;color:var(--muted)">${esc(nStr)} · Pendiente</div>
+                </div>
+                <div style="position:relative;flex:1;min-height:40px;display:flex;align-items:center;padding:0 12px">
+                  <span style="background:#f3f4f6;color:#6b7280;padding:3px 10px;border-radius:4px;font-size:11px;border:1px solid #e5e7eb;white-space:nowrap">Pendiente de inicio</span>
+                </div>
+              </div>`;
+            continue;
+          }
+
+          // Normal item with phase bars — bars use tlDateX (timeline-div coords)
           const bars = item.phases.map(ph => {
-            const sx  = dateToX(ph.startDate);
-            const ex  = dateToX(ph.endDate);
+            const sx  = tlDateX(ph.startDate);
+            const ex  = tlDateX(ph.endDate);
             const w   = Math.max(4, ex - sx - 1);
             const st  = barStyle(ph);
-            const icon = srcIcon(ph.source);
+            const icon = ph.source === 'clickup' ? '📅' : '';
             const showLabel = w > 60;
             const showIcon  = icon && w > 20;
             const labelTxt  = showLabel
@@ -703,18 +773,18 @@ const Schedule = {
             return `<div title="${esc(tooltip(ph))}" style="position:absolute;left:${sx}px;width:${w}px;top:8px;height:24px;background:${st.bg};border:${st.bd};color:${st.tx};opacity:${st.op};border-radius:4px;font-size:9px;font-weight:500;overflow:hidden;white-space:nowrap;padding:0 4px;line-height:24px">${esc(labelTxt)}</div>`;
           }).join('');
 
-          const fabricaX  = dateToX(item.fabricaDate);
+          const fabricaX   = tlDateX(item.fabricaDate);
           const fabricaLbl = item.fabricaDate.toLocaleDateString('es', { day: '2-digit', month: 'short' });
 
           innerHtml += `
             <div class="gantt-row" draggable="true"
                  data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${globalIdx}" data-pid="${pid}"
-                 style="display:none;min-height:40px;background:#fff;padding-left:0">
-              <div class="gantt-item-label" style="width:${LABEL_W}px;min-width:${LABEL_W}px;padding:5px 10px 5px 28px">
-                <div class="gantt-item-name" style="white-space:normal;word-break:break-word;font-size:12px;font-weight:500;line-height:1.3">${esc(item.name)}</div>
+                 style="display:none;min-height:40px;background:#fff">
+              <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:3;background:#fff;padding:5px 10px 5px 28px">
+                <div style="font-size:12px;font-weight:500;line-height:1.3;word-break:break-word">${esc(item.name)}</div>
                 <div class="gantt-item-meta">${esc(nStr)} · ${esc(item.currentPhase)}</div>
               </div>
-              <div style="position:relative;flex:1;min-height:40px">
+              <div style="position:relative;flex:1;min-height:40px;overflow:visible">
                 ${bars}
                 <div title="Est. fábrica: ${fabricaLbl}"
                      style="position:absolute;left:${fabricaX}px;top:10px;font-size:13px;z-index:3;cursor:default">🏁</div>
@@ -723,17 +793,20 @@ const Schedule = {
         }
       }
 
+      // Wrap each pair in its own horizontal scroll container.
+      // The inner wrapper is wider than the container → sticky columns + horizontal scroll.
       return `<div class="sched-pair-block">
         <div class="sched-pair-title">
           <span class="sched-pair-dot" style="background:${color}"></span>
           ${esc(title)}
           <span class="sched-pair-count">${timeline.length} ítem${timeline.length !== 1 ? 's' : ''}</span>
         </div>
-        <div style="overflow-x:auto">
+        <div class="gantt-scroll-wrap" style="overflow-x:auto;position:relative">
           <div style="position:relative;min-width:${totalW}px">
             ${todayLine}
-            <div style="position:relative;height:28px;border-bottom:2px solid var(--border);background:var(--bg)">
-              ${gridLines.join('')}
+            <div style="display:flex;align-items:stretch;height:28px;border-bottom:2px solid var(--border);background:var(--bg)">
+              <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:5;background:var(--bg)"></div>
+              <div style="position:relative;flex:1;height:28px;overflow:visible">${axisLabels.join('')}</div>
             </div>
             ${innerHtml}
           </div>
@@ -746,12 +819,12 @@ const Schedule = {
         <span class="sched-legend-item" style="background:#1d4ed8;border:2px solid #3b82f6;color:#fff">📅 Fecha ClickUp</span>
         <span class="sched-legend-item" style="background:#dbeafe;border:1px dashed #3b82f6;color:#1e40af">~ Estimado</span>
         <span class="sched-legend-item" style="background:#e5e7eb;border:1px solid #9ca3af;color:#6b7280">✓ Completado</span>
-        <span class="sched-legend-item" style="background:#fee2e2;border:2px solid #ef4444;color:#991b1b">⚠ Atrasado</span>
+        <span class="sched-legend-item" style="background:#f3f4f6;border:1px solid #e5e7eb;color:#6b7280">⏳ Pendiente</span>
         <span style="font-size:11px;color:var(--faint);padding:3px 0">🏁 = fábrica estimada &nbsp;· Arrastra para reordenar</span>
       </div>
       ${pairsHTML}`;
 
-    // Bind project row collapse/expand (pure DOM toggle, no re-render)
+    // ── Expand / collapse project rows ─────────────────────────
     container.querySelectorAll('.gantt-proj-row').forEach(projRow => {
       projRow.addEventListener('click', () => {
         const pid      = projRow.dataset.pid;
@@ -759,10 +832,19 @@ const Schedule = {
         projRow.dataset.expanded = expanded ? 'false' : 'true';
         const arrow = projRow.querySelector('.gprow-arrow');
         if (arrow) arrow.textContent = expanded ? '▶' : '▼';
-        projRow.style.background = expanded ? 'var(--bg)' : 'var(--divider)';
+        projRow.style.background = expanded ? '' : 'var(--divider)';
         container.querySelectorAll(`.gantt-row[data-pid="${pid}"]`).forEach(r => {
           r.style.display = expanded ? 'none' : 'flex';
         });
+      });
+    });
+
+    // ── Scroll so today is at ~15 % from the left on first render ──
+    // todayX in inner-wrapper coords = LABEL_W + (0 - minDay)*PX = LABEL_W + 1*PX
+    const todayX = dayToX(0);
+    requestAnimationFrame(() => {
+      container.querySelectorAll('.gantt-scroll-wrap').forEach(wrap => {
+        wrap.scrollLeft = Math.max(0, todayX - wrap.clientWidth * 0.15);
       });
     });
 
@@ -773,13 +855,14 @@ const Schedule = {
 
   _renderLista(container, pairResults) {
     const BADGE = {
-      'Jr dibujando':          '#dbeafe|#1e40af',
-      'Sr dibujando':          '#dbeafe|#1e40af',
-      'Sr revisa + envía':     '#ede9fe|#5b21b6',
-      'En aprobación':         '#f3f4f6|#374151',
-      'Jr correcciones':       '#fef3c7|#92400e',
-      'Sr correcciones':       '#fef3c7|#92400e',
-      'Sr elabora OP + fábrica': '#d1fae5|#065f46',
+      'Pendiente de inicio':       '#f3f4f6|#6b7280',
+      'Jr dibujando':              '#dbeafe|#1e40af',
+      'Sr dibujando':              '#dbeafe|#1e40af',
+      'Sr revisa + envía':         '#ede9fe|#5b21b6',
+      'En aprobación':             '#f3f4f6|#374151',
+      'Jr correcciones':           '#fef3c7|#92400e',
+      'Sr correcciones':           '#fef3c7|#92400e',
+      'Sr elabora OP + fábrica':   '#d1fae5|#065f46',
     };
 
     const active = pairResults.filter(p => p.items.length > 0);
@@ -793,15 +876,28 @@ const Schedule = {
       const title = pair.jr ? `${pair.sr} + ${pair.jr}` : `${pair.sr} (sin Jr)`;
 
       const rows = timeline.map((item, idx) => {
+        const nStr = item.nivel !== null ? `Nivel ${item.nivel}` : 'Sin nivel';
         const [bg, fg] = (BADGE[item.currentPhase] || '#f3f4f6|#374151').split('|');
+
+        if (item.pending) {
+          return `<div class="sched-list-row" draggable="true" data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${idx}">
+            <div class="sched-list-num">${idx + 1}</div>
+            <div>
+              <div class="sched-list-name">${esc(item.name)}</div>
+              <div class="sched-list-meta">${esc(item.project || '—')} · ${nStr}</div>
+            </div>
+            <div><span class="sched-phase-badge" style="background:${bg};color:${fg}">${esc(item.currentPhase)}</span></div>
+            <div><span style="color:var(--muted);font-size:12px">—</span></div>
+          </div>`;
+        }
+
         const fabDate  = item.fabricaDate;
         const fabStr   = fabDate.toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit' });
         const days     = Math.round((fabDate - today) / 86400000);
         const daysHTML = days < 0
           ? `<span style="color:var(--below-text)">Atrasado ${Math.abs(days)}d</span>`
           : `${days} día${days !== 1 ? 's' : ''}`;
-        const nStr  = item.nivel !== null ? `Nivel ${item.nivel}` : 'Sin nivel';
-        const cStr  = item.corrections > 0 ? ` · ${item.corrections} corr.` : '';
+        const cStr = item.corrections > 0 ? ` · ${item.corrections} corr.` : '';
 
         return `<div class="sched-list-row" draggable="true" data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${idx}">
           <div class="sched-list-num">${idx + 1}</div>
@@ -838,10 +934,13 @@ const Schedule = {
 
   _renderDisp(container, pairResults) {
     const today  = new Date();
-    const active = pairResults.filter(p => p.timeline.length > 0);
+    // Only pairs that have at least one non-pending item with a fabricaDate
+    const active = pairResults.filter(p =>
+      p.timeline.some(i => !i.pending && i.fabricaDate)
+    );
 
     if (!active.length) {
-      container.innerHTML = '<p style="color:var(--muted);padding:24px">No hay ítems activos.</p>';
+      container.innerHTML = '<p style="color:var(--muted);padding:24px">No hay ítems activos con fecha calculada.</p>';
       return;
     }
 
@@ -853,14 +952,16 @@ const Schedule = {
     };
 
     const rows = active.flatMap(({ pair, timeline }) => {
-      // Availability = latest fabricaDate among each designer's items.
-      const srItems = timeline.filter(i => i.designer === pair.sr);
-      const jrItems = pair.jr ? timeline.filter(i => i.designer === pair.jr) : [];
+      // Availability = latest fabricaDate among each designer's non-pending items.
+      const srItems = timeline.filter(i => i.designer === pair.sr && !i.pending && i.fabricaDate);
+      const jrItems = pair.jr
+        ? timeline.filter(i => i.designer === pair.jr && !i.pending && i.fabricaDate)
+        : [];
 
       const srFinMs = srItems.length
         ? Math.max(...srItems.map(i => i.fabricaDate.getTime()))
         : today.getTime();
-      const srFin = new Date(srFinMs);
+      const srFin  = new Date(srFinMs);
       const srLate = srFin < today;
 
       const out = [`<tr>
@@ -872,10 +973,11 @@ const Schedule = {
       if (pair.jr && jrItems.length) {
         const jrFinMs = Math.max(...jrItems.map(i => i.fabricaDate.getTime()));
         const jrFin   = new Date(jrFinMs);
+        const jrLate  = jrFin < today;
         out.push(`<tr>
           <td class="avail-name" style="padding-left:28px"><span class="sched-pair-dot" style="background:${DESIGNER_COLORS[pair.jr] || '#888'}"></span>${esc(pair.jr)} <span style="color:var(--faint);font-size:11px">(Jr)</span></td>
           <td class="avail-date">${fmt(jrFin)}</td>
-          <td class="avail-next">${fmtNext(jrFin)}</td>
+          <td class="avail-next"${jrLate ? ' style="color:var(--below-text)"' : ''}>${fmtNext(jrFin)}${jrLate ? ' ⚠' : ''}</td>
         </tr>`);
       }
       return out;
@@ -904,7 +1006,7 @@ const Schedule = {
         e.dataTransfer.effectAllowed = 'move';
         row.style.opacity = '0.45';
       });
-      row.addEventListener('dragend',  () => { row.style.opacity = ''; src = null; });
+      row.addEventListener('dragend',   () => { row.style.opacity = ''; src = null; });
       row.addEventListener('dragover',  e => { e.preventDefault(); row.style.outline = '2px solid var(--aprob-text)'; });
       row.addEventListener('dragleave', () => { row.style.outline = ''; });
       row.addEventListener('drop', e => {
@@ -913,7 +1015,7 @@ const Schedule = {
         if (!src || src.pk !== row.dataset.pk) return;
         const targetIdx = +row.dataset.idx;
         if (src.idx === targetIdx) return;
-        const pr  = pairResults.find(p => p.pairKey === src.pk);
+        const pr = pairResults.find(p => p.pairKey === src.pk);
         if (!pr) return;
         const ids = pr.items.map(i => i.id);
         const [moved] = ids.splice(src.idx, 1);
