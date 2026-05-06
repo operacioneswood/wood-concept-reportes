@@ -182,26 +182,8 @@ function parseCUCSV(rows) {
 
   const tasks = [];
 
-  // ── DEBUG OP 24261-17 — raw scan before Task Type filter ──
-  const _dOP      = '24261-17';
-  const _dRawHits = [];
-  // ── END header ─────────────────────────────────────────────
-
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
-
-    // ── DEBUG: collect every raw row that has this OP ─────────
-    if (iOP !== -1 && (row[iOP] || '').trim() === _dOP) {
-      _dRawHits.push({
-        rowIndex: r,
-        taskType: iType  !== -1 ? (row[iType]  || '').trim() : '?',
-        name:     iName  !== -1 ? (row[iName]  || '').trim() : '?',
-        nivel:    iNiv   !== -1 ? (row[iNiv]   || '').trim() : '?',
-        assignee: iAsgn  !== -1 ? (row[iAsgn]  || '').trim() : '?',
-        envio:    iEnvio !== -1 ? (row[iEnvio] || '').trim() : '?',
-      });
-    }
-    // ── END per-row debug ─────────────────────────────────────
 
     // Skip non-Task rows
     if (iType !== -1 && normStr(row[iType] || '') !== 'task') continue;
@@ -222,20 +204,6 @@ function parseCUCSV(rows) {
       corrections:     iCorr  !== -1 ? (parseInt(row[iCorr] || '0') || 0) : 0,
     });
   }
-
-  // ── DEBUG: print summary after full parse ─────────────────
-  const _dParsed = tasks.filter(t => t.op === _dOP);
-  console.group('%c[DEBUG CSV] OP 24261-17', 'color:#0891b2;font-weight:bold');
-  console.log('Raw rows in CSV with this OP:', _dRawHits.length);
-  _dRawHits.forEach((r, i) =>
-    console.log(`  raw[${i}] taskType="${r.taskType}"  nivel="${r.nivel}"  name="${r.name}"`)
-  );
-  console.log('Parsed tasks (after Task Type filter):', _dParsed.length);
-  _dParsed.forEach((t, i) =>
-    console.log(`  parsed[${i}] nivel=${t.nivel}  assignee="${t.assignee}"  envio="${t.envio}"  name="${t.name}"`)
-  );
-  console.groupEnd();
-  // ── END DEBUG ─────────────────────────────────────────────
 
   return tasks;
 }

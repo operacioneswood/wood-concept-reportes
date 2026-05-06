@@ -36,9 +36,16 @@
 function buildReport(mode, cuTasks, regEntries, month, year) {
 
   // ── 1. Build OP → Registro entry lookup ─────────────────
+  // When the same OP appears in multiple Registro rows (e.g. different months),
+  // prefer the entry whose ENTRADA falls in the selected month so that nivel
+  // and cross-validation always use the current-month Registro data.
   const regMap = new Map(); // individual OP string → entry
   for (const e of regEntries) {
-    for (const op of e.ops) regMap.set(op, e);
+    const d          = parseRegDate(e.entradaRaw, year);
+    const isInMonth  = d && d.getMonth() + 1 === month && d.getFullYear() === year;
+    for (const op of e.ops) {
+      if (!regMap.has(op) || isInMonth) regMap.set(op, e);
+    }
   }
 
   // ── 2. Pre-compute cross-validation sets (Mode B only) ──
