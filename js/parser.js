@@ -226,10 +226,14 @@ function parseCUCSV(rows) {
   // ── DEBUG: print summary after full parse ─────────────────
   const _dParsed = tasks.filter(t => t.op === _dOP);
   console.group('%c[DEBUG CSV] OP 24261-17', 'color:#0891b2;font-weight:bold');
-  console.log('All raw rows with this OP (before Task Type filter):', _dRawHits.length);
-  console.table(_dRawHits);
-  console.log('Rows that passed Task Type filter (parsed tasks):', _dParsed.length);
-  console.table(_dParsed.map(t => ({ name: t.name, nivel: t.nivel, assignee: t.assignee, envio: t.envio })));
+  console.log('Raw rows in CSV with this OP:', _dRawHits.length);
+  _dRawHits.forEach((r, i) =>
+    console.log(`  raw[${i}] taskType="${r.taskType}"  nivel="${r.nivel}"  name="${r.name}"`)
+  );
+  console.log('Parsed tasks (after Task Type filter):', _dParsed.length);
+  _dParsed.forEach((t, i) =>
+    console.log(`  parsed[${i}] nivel=${t.nivel}  assignee="${t.assignee}"  envio="${t.envio}"  name="${t.name}"`)
+  );
   console.groupEnd();
   // ── END DEBUG ─────────────────────────────────────────────
 
