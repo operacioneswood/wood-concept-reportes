@@ -154,20 +154,25 @@ const ClickUpIntegration = {
 
     // ── DEBUG 26111 (remove after diagnosis) ──────────────────
     const _d26 = rawTasks.filter(t =>
-      t.name?.includes('26111') ||
       t.name?.toLowerCase().includes('puertas pasillo') ||
       (t.custom_fields || []).some(f => String(f.value ?? '').includes('26111'))
     );
     console.group('%c[DEBUG] 26111 / PUERTAS PASILLO search', 'color:#7c3aed;font-weight:bold');
     console.log('Matches in rawTasks:', _d26.length);
-    console.log(_d26.map(t => ({
-      id:      t.id,
-      name:    t.name,
-      status:  t.status?.status,
-      parent:  t.parent,
-      list:    t.list?.name,
-      fields:  (t.custom_fields || []).filter(f => f.value != null).map(f => ({ name: f.name, value: f.value })),
-    })));
+    _d26.forEach(t => {
+      const fields = t.custom_fields || [];
+      const get = name => fields.find(f => f.name?.toLowerCase().includes(name.toLowerCase()))?.value;
+      console.group(`Task: "${t.name}"`);
+      console.log('status   :', t.status?.status, '| status_type:', t.status?.type);
+      console.log('parent id:', t.parent, '| list:', t.list?.name);
+      console.log('assignees:', (t.assignees || []).map(a => a.username || a.name));
+      console.log('NO. OP   :', get('no. op') ?? get('op'));
+      console.log('envio raw:', get('envío a fábrica') ?? get('envio a fabrica') ?? get('fecha de envío') ?? '— NOT FOUND');
+      console.log('finDibujo:', get('fin de dibujo'));
+      console.log('aprobado :', get('aprobado'));
+      console.log('All fields with values:', fields.filter(f => f.value != null).map(f => `${f.name}: ${JSON.stringify(f.value)}`));
+      console.groupEnd();
+    });
     console.groupEnd();
     // ── END DEBUG ─────────────────────────────────────────────
 
