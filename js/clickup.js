@@ -140,6 +140,51 @@ const ClickUpIntegration = {
       }
     }
 
+    // ── DEBUG — locate missing OPs (remove after diagnosis) ──
+    const _DEBUG_OPS = ['25176-04', '25037-06'];
+    const _DEBUG_TERMS = ['25176', '25037'];
+    console.group('%c[DEBUG] Missing OP search', 'color:#e11d48;font-weight:bold');
+    console.log('Total raw tasks from API:', rawTasks.length);
+    console.log('All lists in response:', [...new Set(rawTasks.map(t => t.list?.name).filter(Boolean))]);
+    console.log('All statuses in response:', [...new Set(rawTasks.map(t => t.status?.status).filter(Boolean))]);
+
+    _DEBUG_OPS.forEach(targetOP => {
+      console.group(`=== Searching for OP ${targetOP} ===`);
+
+      // Search by any custom field whose name contains "op"
+      const foundByOP = rawTasks.filter(t =>
+        (t.custom_fields || []).some(f =>
+          (f.name?.toLowerCase().includes('op')) && String(f.value ?? '').trim() === targetOP
+        )
+      );
+
+      // Search by task name containing either numeric prefix
+      const foundByName = rawTasks.filter(t =>
+        _DEBUG_TERMS.some(term => t.name?.includes(term))
+      );
+
+      console.log('Found by OP custom field:', foundByOP.length,
+        foundByOP.map(t => ({
+          id:            t.id,
+          name:          t.name,
+          status:        t.status?.status,
+          status_type:   t.status?.type,
+          parent:        t.parent,
+          list:          t.list?.name,
+          custom_fields: (t.custom_fields || []).map(f => ({ name: f.name, value: f.value })),
+        }))
+      );
+      console.log('Found by name search:', foundByName.map(t => ({
+        id:     t.id,
+        name:   t.name,
+        status: t.status?.status,
+        list:   t.list?.name,
+      })));
+      console.groupEnd();
+    });
+    console.groupEnd();
+    // ── END DEBUG ─────────────────────────────────────────────
+
     // ── Step 4 — Detect custom fields + parse ─────────────────
     prog(`Detectando campos… (${rawTasks.length} tareas)`);
     const detection   = await this._detectFields(listIds[0]);
