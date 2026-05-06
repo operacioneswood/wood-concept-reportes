@@ -1427,6 +1427,25 @@ body {
   background: var(--bg);
   flex-shrink: 0;
 }
+.asign-jr-board-chips:empty { display: none; }
+
+/* Quick-assign Sr button on unassigned Sr items */
+.asign-quick-sr-btn {
+  display: inline-flex;
+  align-items: center;
+  background: #ede9fe;
+  color: #6d28d9;
+  border: none;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s;
+  line-height: 1.4;
+}
+.asign-quick-sr-btn:hover { background: #ddd6fe; }
 .asign-status-chip {
   display: inline-flex;
   align-items: center;

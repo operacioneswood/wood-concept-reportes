@@ -1216,6 +1216,10 @@ const Schedule = {
       'enviado a aprobacion', 'aprobado',
       'proximos a entrar', 'asignado',
     ];
+    // Store for reactive chip updates in _updateBoardChips
+    this._statusLabel  = STATUS_LABEL;
+    this._statusColors = STATUS_COLORS;
+    this._statusOrder  = STATUS_ORDER;
 
     // ── Section 1: Jr status panel (horizontal, 3 columns) ───
     const jrCardsHtml = this.JR_LIST.map(jr => {
@@ -1337,6 +1341,10 @@ const Schedule = {
       const slabel  = STATUS_LABEL[task.status] || task.status;
       const jrBadge = isDraft
         ? `<span class="asign-draft-jr-badge">→ ${esc(draft.assignName)}</span>` : '';
+      // +Sr quick-assign: only for items with NO assignee at all (not already in draft)
+      const srBtn = (!isDraft && sr && task.allDesigners.length === 0)
+        ? `<button class="asign-quick-sr-btn" data-task-id="${esc(task.taskId)}" data-sr="${esc(sr)}" title="Asignar a ${esc(sr)}">+ Sr</button>`
+        : '';
       return `
         <div class="asign-drag-item${isDraft ? ' draft-assigned' : ''}"
              draggable="true"
@@ -1351,7 +1359,7 @@ const Schedule = {
             <div class="asign-drag-meta">
               <span class="asign-prow-niv">${esc(niv)}</span>
               <span class="asign-prow-status" style="background:${sbg};color:${sfg}">${esc(slabel)}</span>
-              ${jrBadge}
+              ${jrBadge}${srBtn}
             </div>
           </div>
         </div>`;
@@ -1457,8 +1465,8 @@ const Schedule = {
           const slabel = STATUS_LABEL[s] || s;
           return `<span class="asign-status-chip" style="background:${sbg};color:${sfg}">${esc(slabel)} <b>${boardCounts[s]}</b></span>`;
         }).join('');
-      const boardChips = boardChipsHtml
-        ? `<div class="asign-jr-board-chips">${boardChipsHtml}</div>` : '';
+      // Always render container so _updateBoardChips can find it by ID
+      const boardChips = `<div class="asign-jr-board-chips" id="asign-jr-chips-${jrId}">${boardChipsHtml}</div>`;
 
       return `
         <div class="asign-jr-dropcard" data-jr="${esc(jr)}">
@@ -1746,7 +1754,7 @@ const Schedule = {
         const hint = dz.querySelector('.asign-dropzone-hint');
         if (hint) hint.remove();
 
-        // Append dropzone item
+        // Append dropzone item (no per-element binding — delegation handles clicks)
         const niv = task.nivel !== null ? `N${fmtNum(task.nivel)}` : '—';
         const itemEl = document.createElement('div');
         itemEl.className = 'asign-dropzone-item';
@@ -1756,22 +1764,60 @@ const Schedule = {
           <span class="asign-dropzone-item-niv">${esc(niv)}</span>
           <button class="asign-dropzone-undo" data-task-id="${esc(dragTaskId)}" title="Deshacer">✕</button>`;
         dz.appendChild(itemEl);
-        itemEl.querySelector('.asign-dropzone-undo').addEventListener('click', () => {
-          this._undoDraftItem(dragTaskId, container);
-        });
 
         this._updateJrBar(jr, container);
         this._updateSrBar(dragSr, container);
+        this._updateBoardChips(jr, container);
         this._updateBalance(container);
         this._refreshDraftBar(container);
       });
     });
 
-    // Bind undo buttons already in dropzones (restored draft state on re-render)
-    container.querySelectorAll('.asign-dropzone-undo').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this._undoDraftItem(btn.dataset.taskId, container);
-      });
+    // ── Delegated click handler for all dynamic buttons ────────
+    // Handles .asign-dropzone-undo (✕ in Jr dropzone) and
+    // .asign-quick-sr-btn (+ Sr on unassigned items) — avoids stale
+    // closure bugs that arise when binding directly in the drop handler.
+    container.addEventListener('click', e => {
+      // ✕ undo button inside a Jr dropzone
+      const undoBtn = e.target.closest('.asign-dropzone-undo');
+      if (undoBtn) {
+        this._undoDraftItem(undoBtn.dataset.taskId, container);
+        return;
+      }
+
+      // + Sr quick-assign button on an unassigned Sr item
+      const srBtn = e.target.closest('.asign-quick-sr-btn');
+      if (srBtn) {
+        e.stopPropagation();
+        const taskId = srBtn.dataset.taskId;
+        const srName = srBtn.dataset.sr;
+        if (!taskId || !srName || this._asignDraft.has(taskId)) return;
+        const task   = this._apiTasks.find(t => t.taskId === taskId);
+        if (!task) return;
+        this._asignDraft.set(taskId, {
+          taskId,
+          taskName:     task.name,
+          assignType:   'sr',
+          assignName:   srName,
+          assignUserId: this._userIdMap[srName] || null,
+          nivel:        task.nivel || 0,
+          fromSr:       srName,
+        });
+        // Mark item as draft-assigned and inject badge
+        const itemEl = srBtn.closest('.asign-drag-item');
+        if (itemEl) {
+          itemEl.classList.add('draft-assigned');
+          srBtn.remove();
+          let badge = itemEl.querySelector('.asign-draft-jr-badge');
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'asign-draft-jr-badge';
+            itemEl.querySelector('.asign-drag-meta')?.appendChild(badge);
+          }
+          badge.textContent = `→ ${srName}`;
+        }
+        this._refreshDraftBar(container);
+      }
     });
   },
 
@@ -1833,31 +1879,84 @@ const Schedule = {
     if (sigmaEl) sigmaEl.textContent = `Σ ${fmtNum(remaining)} pts`;
   },
 
+  _updateBoardChips(jr, container) {
+    const jrIdx = this.JR_LIST.indexOf(jr);
+    if (jrIdx < 0 || !this._statusOrder) return;
+    const chipsEl = document.getElementById(`asign-jr-chips-jr${jrIdx}`);
+    if (!chipsEl) return;
+
+    // Tasks already assigned to this Jr in ClickUp
+    const existing    = this._apiTasks.filter(t => t.allDesigners.includes(jr));
+    const existingIds = new Set(existing.map(t => t.taskId));
+
+    // Tasks being draft-assigned to this Jr (not yet in allDesigners)
+    const draftAdded = Array.from(this._asignDraft.values())
+      .filter(c => c.assignName === jr && c.assignType === 'jr' && !existingIds.has(c.taskId))
+      .map(c => this._apiTasks.find(t => t.taskId === c.taskId))
+      .filter(Boolean);
+
+    const counts = {};
+    for (const t of [...existing, ...draftAdded]) {
+      counts[t.status] = (counts[t.status] || 0) + 1;
+    }
+
+    chipsEl.innerHTML = this._statusOrder
+      .filter(s => counts[s])
+      .map(s => {
+        const [sbg, sfg] = (this._statusColors[s] || ['#f3f4f6', '#374151']);
+        const slabel = this._statusLabel[s] || s;
+        return `<span class="asign-status-chip" style="background:${sbg};color:${sfg}">${esc(slabel)} <b>${counts[s]}</b></span>`;
+      }).join('');
+  },
+
   _undoDraftItem(taskId, container) {
     const draft = this._asignDraft.get(taskId);
     if (!draft) return;
-    const jr     = draft.assignName;
-    const fromSr = draft.fromSr ?? '';
+    const assignName  = draft.assignName;
+    const fromSr      = draft.fromSr ?? '';
+    const isSrAssign  = draft.assignType === 'sr';
     this._asignDraft.delete(taskId);
 
-    // Remove from dropzones
-    container.querySelectorAll(`.asign-dropzone-item[data-task-id="${CSS.escape(taskId)}"]`).forEach(el => {
-      const dz = el.closest('.asign-jr-dropzone');
-      el.remove();
-      if (dz && !dz.querySelector('.asign-dropzone-item')) {
-        dz.innerHTML = `<span class="asign-dropzone-hint">Arrastra ítems aquí</span>`;
-      }
-    });
+    // Remove item from Jr dropzone (only Jr-type drafts produce a dropzone row)
+    if (!isSrAssign) {
+      container.querySelectorAll(`.asign-dropzone-item[data-task-id="${CSS.escape(taskId)}"]`).forEach(el => {
+        const dz = el.closest('.asign-jr-dropzone');
+        el.remove();
+        if (dz && !dz.querySelector('.asign-dropzone-item')) {
+          dz.innerHTML = `<span class="asign-dropzone-hint">Arrastra ítems aquí</span>`;
+        }
+      });
+    }
 
-    // Un-mark the Sr item
+    // Un-mark the Sr drag item
     const srcItem = container.querySelector(`.asign-drag-item[data-task-id="${CSS.escape(taskId)}"]`);
     if (srcItem) {
       srcItem.classList.remove('draft-assigned');
       srcItem.querySelector('.asign-draft-jr-badge')?.remove();
+      // Re-inject the +Sr button when undoing a Sr assignment of an unassigned item
+      if (isSrAssign) {
+        const task = this._apiTasks.find(t => t.taskId === taskId);
+        const meta = srcItem.querySelector('.asign-drag-meta');
+        if (task && task.allDesigners.length === 0 && assignName && meta
+            && !meta.querySelector('.asign-quick-sr-btn')) {
+          const btn = document.createElement('button');
+          btn.className        = 'asign-quick-sr-btn';
+          btn.dataset.taskId   = taskId;
+          btn.dataset.sr       = assignName;
+          btn.title            = `Asignar a ${assignName}`;
+          btn.textContent      = '+ Sr';
+          meta.appendChild(btn);
+          // No explicit listener needed — delegated click handler in _bindBoard handles it
+        }
+      }
     }
 
-    this._updateJrBar(jr, container);
-    this._updateSrBar(fromSr, container);
+    // Reactive updates — skip Jr/Sr bars and chips for Sr-type assignments
+    if (!isSrAssign) {
+      this._updateJrBar(assignName, container);
+      this._updateSrBar(fromSr, container);
+      this._updateBoardChips(assignName, container);
+    }
     this._updateBalance(container);
     this._refreshDraftBar(container);
   },
