@@ -82,7 +82,10 @@
                 <label class="cu-api-label" for="cu-list-id">ID — lista, carpeta o espacio</label>
                 <input type="text" id="cu-list-id" class="cu-list-input" placeholder="ej. 901234567890">
                 <div class="cu-list-hint">Acepta cualquier ID de ClickUp. En la app: clic derecho sobre el espacio, carpeta o lista → <b>Copiar enlace</b> → el ID es el número al final.</div>
-                <button class="btn-primary cu-sync-btn" id="cu-sync-btn">↻ Sincronizar</button>
+                <div style="display:flex;gap:8px;margin-top:10px">
+                  <button class="btn-primary cu-sync-btn" id="cu-sync-btn">↻ Sincronizar</button>
+                  <button class="btn-secondary" id="cu-force-btn" title="Ignorar caché y sincronizar desde ClickUp">🔄 Forzar</button>
+                </div>
                 <div id="cu-sync-status" class="cu-sync-status"></div>
               </div>
             </div>

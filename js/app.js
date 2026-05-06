@@ -65,7 +65,8 @@ const App = {
     const apiBtn  = document.getElementById('mode-toggle-api');
     const csvPane = document.getElementById('dz-left-csv');
     const apiPane = document.getElementById('dz-left-api');
-    const syncBtn  = document.getElementById('cu-sync-btn');
+    const syncBtn   = document.getElementById('cu-sync-btn');
+    const forceBtn  = document.getElementById('cu-force-btn');
     const listInput = document.getElementById('cu-list-id');
     const keyInput  = document.getElementById('cu-api-key');
 
@@ -95,8 +96,9 @@ const App = {
     if (keyInput)  keyInput.addEventListener('input',  () => ClickUpIntegration.setApiKey(keyInput.value));
     if (listInput) listInput.addEventListener('input',  () => ClickUpIntegration.setListId(listInput.value));
 
-    // Sync button
-    if (syncBtn) syncBtn.addEventListener('click', () => this._syncClickUp());
+    // Sync buttons
+    if (syncBtn)  syncBtn.addEventListener('click',  () => this._syncClickUp(false));
+    if (forceBtn) forceBtn.addEventListener('click', () => this._syncClickUp(true));
 
     // Show last sync info if already synced
     this._updateSyncInfo();
@@ -104,11 +106,11 @@ const App = {
     // ── Auto-switch to API mode and sync on page load ─────────
     if (ClickUpIntegration.getApiKey() && ClickUpIntegration.getListId()) {
       switchMode('api');
-      this._syncClickUp();
+      this._syncClickUp(false);
     }
   },
 
-  async _syncClickUp() {
+  async _syncClickUp(force = false) {
     if (this._syncing) return;
     const keyInput  = document.getElementById('cu-api-key');
     const listInput = document.getElementById('cu-list-id');
@@ -122,12 +124,17 @@ const App = {
     ClickUpIntegration.setListId(listId);
 
     this._syncing = true;
-    const btn = document.getElementById('cu-sync-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '⟳ Sincronizando…'; }
-    this._setSyncStatus('loading', 'Conectando con ClickUp…');
+    const syncBtn  = document.getElementById('cu-sync-btn');
+    const forceBtn = document.getElementById('cu-force-btn');
+    if (syncBtn)  { syncBtn.disabled  = true; syncBtn.textContent  = '⟳ Sincronizando…'; }
+    if (forceBtn) { forceBtn.disabled = true; }
+    this._setSyncStatus('loading', force ? 'Forzando sincronización…' : 'Conectando con ClickUp…');
 
     try {
-      const result = await ClickUpIntegration.fetchParsedTasks(listId);
+      const result = await ClickUpIntegration.fetchParsedTasks(listId, {
+        force,
+        onProgress: msg => this._setSyncStatus('loading', msg),
+      });
       this._cuApiData = result;
       this._onFilesChanged();
 
@@ -157,7 +164,11 @@ const App = {
       const missingCritical = !hasAnyDate;
       const missingOp       = !fn.op;
 
-      let msg = `✓ ${n} tarea${n !== 1 ? 's' : ''} · ${rlbl}`;
+      const cacheNote = result.fromCache
+        ? ` <span style="color:var(--muted);font-weight:400">(caché · ${Math.round((ClickUpIntegration.cacheAge() || 0) / 60)} min)</span>`
+        : '';
+
+      let msg = `✓ ${n} tarea${n !== 1 ? 's' : ''} · ${rlbl}${cacheNote}`;
       msg += `<br><small style="color:var(--muted)">`;
       msg += `OP ${ok('op')} &nbsp; Nivel ${ok('nivel')} &nbsp; `
            + `Dibujo ${ok('finDibujo')} &nbsp; Aprobado ${ok('aprobado')} &nbsp; Envío fábrica ${ok('envio')}`;
@@ -183,7 +194,8 @@ const App = {
       console.error(err);
     } finally {
       this._syncing = false;
-      if (btn) { btn.disabled = false; btn.textContent = '↻ Sincronizar'; }
+      if (syncBtn)  { syncBtn.disabled  = false; syncBtn.textContent  = '↻ Sincronizar'; }
+      if (forceBtn) { forceBtn.disabled = false; }
     }
   },
 

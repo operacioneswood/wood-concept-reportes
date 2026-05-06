@@ -6,16 +6,24 @@
 // traverses up to its parent folder or space to find the
 // actual task lists.
 //
+// Performance fixes applied:
+//   1. Parallel pagination  — page 0 first, then pages 1–4 in parallel
+//   2. fields= param        — request only fields the app uses
+//   3. Smart cache (5 min)  — localStorage cache with force-refresh
+//   4. onProgress callback  — live status updates during fetch
+//
 // Depends on: config.js (normStr)
 //             parser.js  (parseClickUpAPI)
 // ─────────────────────────────────────────────────────────────
 
 const ClickUpIntegration = {
 
-  _API_KEY_KEY:   'cu_api_key',
-  _SYNC_TIME_KEY: 'cu_last_sync',
-  _SYNC_COUNT_KEY:'cu_last_count',
-  _LIST_ID_KEY:   'cu_list_id',
+  _API_KEY_KEY:    'cu_api_key',
+  _SYNC_TIME_KEY:  'cu_last_sync',
+  _SYNC_COUNT_KEY: 'cu_last_count',
+  _LIST_ID_KEY:    'cu_list_id',
+  _CACHE_KEY:      'cu_tasks_cache',
+  _CACHE_TTL:      5 * 60 * 1000,   // 5 minutes in ms
 
   getApiKey()   { return localStorage.getItem(this._API_KEY_KEY) || ''; },
   setApiKey(k)  { localStorage.setItem(this._API_KEY_KEY, String(k).trim()); },
@@ -30,43 +38,126 @@ const ClickUpIntegration = {
     return parseInt(localStorage.getItem(this._SYNC_COUNT_KEY) || '0', 10);
   },
 
+  // ── Fix 3 — Cache helpers ──────────────────────────────────
+
+  _getCache() {
+    try {
+      const raw = localStorage.getItem(this._CACHE_KEY);
+      if (!raw) return null;
+      const c = JSON.parse(raw);
+      if (!c || !c.timestamp || !Array.isArray(c.tasks)) return null;
+      return c;
+    } catch (_) { return null; }
+  },
+
+  _setCache(data) {
+    try {
+      localStorage.setItem(this._CACHE_KEY, JSON.stringify({
+        timestamp:     Date.now(),
+        tasks:         data.rawTasks,
+        fieldIds:      data.fieldIds,
+        fieldNames:    data.fieldNames,
+        resolvedLabel: data.resolvedLabel,
+      }));
+    } catch (e) {
+      console.warn('[ClickUp] Cache write failed:', e.message);
+    }
+  },
+
+  clearCache() {
+    localStorage.removeItem(this._CACHE_KEY);
+  },
+
+  isCacheFresh() {
+    const c = this._getCache();
+    return c ? (Date.now() - c.timestamp < this._CACHE_TTL) : false;
+  },
+
+  /** Returns the cache age in seconds, or null if no cache. */
+  cacheAge() {
+    const c = this._getCache();
+    return c ? Math.round((Date.now() - c.timestamp) / 1000) : null;
+  },
+
   // ── Main entry point ───────────────────────────────────────
 
-  async fetchParsedTasks(id) {
+  /**
+   * Fetch and parse tasks for the given ClickUp ID.
+   *
+   * @param {string}   id
+   * @param {object}   [opts]
+   * @param {boolean}  [opts.force=false]   — bypass cache, always hit the API
+   * @param {function} [opts.onProgress]    — called with a status string at each stage
+   */
+  async fetchParsedTasks(id, { force = false, onProgress } = {}) {
     const apiKey = this.getApiKey();
     if (!apiKey) throw new Error('Ingresa tu API token de ClickUp antes de sincronizar.');
 
-    // Step 1 — resolve the entered ID to concrete list IDs
+    const prog = msg => { if (onProgress) onProgress(msg); };
+
+    // ── Fix 3 — Cache hit ──────────────────────────────────────
+    if (!force) {
+      const cached = this._getCache();
+      if (cached && (Date.now() - cached.timestamp < this._CACHE_TTL)) {
+        const ageS   = Math.round((Date.now() - cached.timestamp) / 1000);
+        const ageTxt = ageS < 60 ? `${ageS}s` : `${Math.round(ageS / 60)} min`;
+        console.info('[ClickUp] Cache hit —', cached.tasks.length, 'tasks, age', ageTxt);
+        prog(`⚡ Cargando desde caché (${cached.tasks.length} tareas, hace ${ageTxt})…`);
+        const parsedTasks = parseClickUpAPI(cached.tasks, cached.fieldIds || {});
+        return {
+          rawTasks:      cached.tasks,
+          fieldIds:      cached.fieldIds   || {},
+          fieldNames:    cached.fieldNames || {},
+          parsedTasks,
+          resolvedLabel: cached.resolvedLabel || '',
+          fromCache:     true,
+          cacheAgeSec:   ageS,
+        };
+      }
+    }
+
+    // ── Step 1 — Resolve the entered ID ───────────────────────
+    prog('Resolviendo ID de ClickUp…');
     let { listIds, label } = await this._resolveToListIds(id);
 
-    // Step 2 — fetch tasks from those lists
-    let rawTasks = await this._fetchFromLists(listIds);
+    // ── Step 2 — Fetch tasks (with progress) ──────────────────
+    prog('Cargando tareas… (0)');
+    let fetched = 0;
+    const progressCb = n => {
+      fetched += n;
+      prog(`Cargando tareas… (${fetched} hasta ahora)`);
+    };
+    let rawTasks = await this._fetchFromLists(listIds, progressCb);
 
-    // Step 3 — if the list was empty, traverse up to the parent folder/space
-    //          (e.g. "DISEÑO" is an empty list inside the Diseño space)
+    // ── Step 3 — Traverse parent if the list was empty ────────
     if (rawTasks.length === 0 && listIds.length === 1) {
       const parent = await this._resolveParentOf(id);
       if (parent) {
         listIds  = parent.listIds;
         label    = parent.label;
-        rawTasks = await this._fetchFromLists(listIds);
+        fetched  = 0;
+        rawTasks = await this._fetchFromLists(listIds, progressCb);
       }
     }
 
-    // Step 4 — detect custom fields + parse
+    // ── Step 4 — Detect custom fields + parse ─────────────────
+    prog(`Detectando campos… (${rawTasks.length} tareas)`);
     const detection   = await this._detectFields(listIds[0]);
     const parsedTasks = parseClickUpAPI(rawTasks, detection.ids);
 
     localStorage.setItem(this._SYNC_TIME_KEY,  new Date().toISOString());
     localStorage.setItem(this._SYNC_COUNT_KEY, String(rawTasks.length));
 
-    return {
+    const result = {
       rawTasks,
       fieldIds:      detection.ids,
       fieldNames:    detection.names,
       parsedTasks,
       resolvedLabel: label,
     };
+    this._setCache(result);  // Fix 3 — persist for next load
+
+    return result;
   },
 
   // ── ID resolution ──────────────────────────────────────────
@@ -133,8 +224,8 @@ const ClickUpIntegration = {
     } catch (_) { return null; }
 
     // ── Try parent folder first (more specific) ───────────────
-    const folderId = listInfo.folder?.id;
-    const folderHidden = listInfo.folder?.hidden;   // hidden = "no folder" pseudo-container
+    const folderId    = listInfo.folder?.id;
+    const folderHidden = listInfo.folder?.hidden;
     if (folderId && !folderHidden) {
       try {
         const data  = await this._call(`folder/${folderId}/list`, { archived: 'false' });
@@ -184,9 +275,11 @@ const ClickUpIntegration = {
   // ── Task fetching ──────────────────────────────────────────
 
   /** Fetch tasks from multiple lists, deduplicated by task ID. */
-  async _fetchFromLists(listIds) {
-    const batches = await Promise.all(listIds.map(lid => this._fetchAllPagesFromList(lid)));
-    const seen    = new Set();
+  async _fetchFromLists(listIds, onProgress) {
+    const batches = await Promise.all(
+      listIds.map(lid => this._fetchAllPagesFromList(lid, onProgress))
+    );
+    const seen = new Set();
     return batches.flat().filter(t => {
       if (seen.has(t.id)) return false;
       seen.add(t.id);
@@ -194,22 +287,52 @@ const ClickUpIntegration = {
     });
   },
 
-  /** Fetch all pages of tasks from a single List ID. */
-  async _fetchAllPagesFromList(listId) {
-    const tasks = [];
-    let   page  = 0;
-    while (true) {
-      const data  = await this._call(`list/${listId}/task`, {
-        page,
-        include_closed: 'true',
-        subtasks:       'true',
-      });
-      const batch = data.tasks || [];
-      tasks.push(...batch);
-      if (data.last_page || batch.length < 100) break;
-      page++;
+  /**
+   * Fix 1 — Parallel pagination.
+   * Fetch page 0 first. If more pages exist, fetch pages 1–4 in parallel
+   * (hard cap of 500 tasks). Reports progress via onProgress(count).
+   *
+   * Fix 2 — Request only the fields the app actually uses.
+   */
+  async _fetchAllPagesFromList(listId, onProgress) {
+    // Fix 2 — only request fields the app uses
+    const baseParams = {
+      include_closed: 'true',
+      subtasks:       'true',
+      fields: 'id,name,status,assignees,parent,custom_fields,start_date,list,folder',
+    };
+
+    // Fetch page 0 to check whether more pages exist
+    const first      = await this._call(`list/${listId}/task`, { ...baseParams, page: 0 });
+    const firstBatch = first.tasks || [];
+    if (onProgress && firstBatch.length > 0) onProgress(firstBatch.length);
+
+    // If ClickUp marks this as the last page, we're done
+    if (first.last_page || firstBatch.length < 100) {
+      return firstBatch;
     }
-    return tasks;
+
+    // Fix 1 — fetch remaining pages in parallel (pages 1–4, cap = 500 tasks)
+    const PAGE_CAP   = 4;
+    const extraPages = Array.from({ length: PAGE_CAP }, (_, i) => i + 1);
+    const results    = await Promise.all(
+      extraPages.map(p =>
+        this._call(`list/${listId}/task`, { ...baseParams, page: p })
+          .then(d => {
+            const n = d?.tasks?.length || 0;
+            if (onProgress && n > 0) onProgress(n);
+            return d;
+          })
+          .catch(() => null)
+      )
+    );
+
+    return [
+      ...firstBatch,
+      ...results
+        .filter(r => r?.tasks?.length)
+        .flatMap(r => r.tasks),
+    ];
   },
 
   // ── Field detection ────────────────────────────────────────
@@ -235,11 +358,8 @@ const ClickUpIntegration = {
 
     const op              = find('no. op', 'no.op', 'numero de op', 'no op', 'op');
     const nivel           = find('nivel');
-    // finDibujo: keep specific — 'aprobacion' alone removed to avoid clashing with the new aprobado field
     const finDibujo       = find('fin de dibujo de aprobacion', 'fin de dibujo', 'fin dibujo');
-    // aprobado: the separate "approved" date field (tier 2)
     const aprobado        = find('aprobado', 'fecha aprobado', 'fecha de aprobado', 'fecha aprobacion');
-    // envioAprobacion: "sent for approval" date — also maps to the drawing/dibujo tier
     const envioAprobacion = find('envio a aprobacion', 'envio aprobacion', 'fecha envio aprobacion');
     const envio           = find('envio a fabrica', 'envio fabrica', 'fecha envio', 'fecha de envio', 'envio', 'fabrica');
     const corrections     = find('no. de correcciones', 'numero de correcciones', 'correcciones');
