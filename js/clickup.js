@@ -60,7 +60,15 @@ const ClickUpIntegration = {
         resolvedLabel: data.resolvedLabel,
       }));
     } catch (e) {
-      console.warn('[ClickUp] Cache write failed:', e.message);
+      // QuotaExceededError — list is too large for localStorage (5 MB limit).
+      // Cache is skipped; every sync will hit the API directly. Not a fatal error.
+      if (e.name === 'QuotaExceededError' || e.code === 22) {
+        console.warn(`[ClickUp] Cache skipped — ${data.rawTasks?.length ?? '?'} tasks exceed localStorage quota. Syncing live every time.`);
+      } else {
+        console.warn('[ClickUp] Cache write failed:', e.message);
+      }
+      // Remove any stale partial entry so isCacheFresh() returns false correctly
+      try { localStorage.removeItem(this._CACHE_KEY); } catch (_) {}
     }
   },
 
@@ -139,51 +147,6 @@ const ClickUpIntegration = {
         rawTasks = await this._fetchFromLists(listIds, progressCb);
       }
     }
-
-    // ── DEBUG — locate missing OPs (remove after diagnosis) ──
-    const _DEBUG_OPS = ['25176-04', '25037-06'];
-    const _DEBUG_TERMS = ['25176', '25037'];
-    console.group('%c[DEBUG] Missing OP search', 'color:#e11d48;font-weight:bold');
-    console.log('Total raw tasks from API:', rawTasks.length);
-    console.log('All lists in response:', [...new Set(rawTasks.map(t => t.list?.name).filter(Boolean))]);
-    console.log('All statuses in response:', [...new Set(rawTasks.map(t => t.status?.status).filter(Boolean))]);
-
-    _DEBUG_OPS.forEach(targetOP => {
-      console.group(`=== Searching for OP ${targetOP} ===`);
-
-      // Search by any custom field whose name contains "op"
-      const foundByOP = rawTasks.filter(t =>
-        (t.custom_fields || []).some(f =>
-          (f.name?.toLowerCase().includes('op')) && String(f.value ?? '').trim() === targetOP
-        )
-      );
-
-      // Search by task name containing either numeric prefix
-      const foundByName = rawTasks.filter(t =>
-        _DEBUG_TERMS.some(term => t.name?.includes(term))
-      );
-
-      console.log('Found by OP custom field:', foundByOP.length,
-        foundByOP.map(t => ({
-          id:            t.id,
-          name:          t.name,
-          status:        t.status?.status,
-          status_type:   t.status?.type,
-          parent:        t.parent,
-          list:          t.list?.name,
-          custom_fields: (t.custom_fields || []).map(f => ({ name: f.name, value: f.value })),
-        }))
-      );
-      console.log('Found by name search:', foundByName.map(t => ({
-        id:     t.id,
-        name:   t.name,
-        status: t.status?.status,
-        list:   t.list?.name,
-      })));
-      console.groupEnd();
-    });
-    console.groupEnd();
-    // ── END DEBUG ─────────────────────────────────────────────
 
     // ── Step 4 — Detect custom fields + parse ─────────────────
     prog(`Detectando campos… (${rawTasks.length} tareas)`);
@@ -333,9 +296,11 @@ const ClickUpIntegration = {
   },
 
   /**
-   * Parallel pagination.
-   * Fetch page 0 first. If more pages exist, fetch pages 1–4 in parallel
-   * (hard cap of 500 tasks). Reports progress via onProgress(count).
+   * Full pagination — fetches every page until ClickUp signals last_page.
+   *
+   * Strategy: fetch page 0, then pages 1-N sequentially until
+   * last_page === true or the batch is shorter than 100 items.
+   * No hard page cap — all tasks are returned regardless of list size.
    *
    * NOTE: Do NOT add a `fields=` parameter here. ClickUp API v2 does not
    * support a generic system-field selector on the task list endpoint; passing
@@ -349,37 +314,26 @@ const ClickUpIntegration = {
       subtasks:       'true',
     };
 
-    // Fetch page 0 to check whether more pages exist
-    const first      = await this._call(`list/${listId}/task`, { ...baseParams, page: 0 });
-    const firstBatch = first.tasks || [];
-    if (onProgress && firstBatch.length > 0) onProgress(firstBatch.length);
+    const allTasks = [];
+    let page = 0;
 
-    // If ClickUp marks this as the last page, we're done
-    if (first.last_page || firstBatch.length < 100) {
-      return firstBatch;
+    while (true) {
+      const data  = await this._call(`list/${listId}/task`, { ...baseParams, page });
+      const batch = data.tasks || [];
+
+      if (batch.length > 0) {
+        allTasks.push(...batch);
+        if (onProgress) onProgress(batch.length);
+      }
+
+      // ClickUp sets last_page:true on the final page; also stop if the
+      // batch is under 100 (means there are no more full pages).
+      if (data.last_page || batch.length < 100) break;
+
+      page++;
     }
 
-    // Fix 1 — fetch remaining pages in parallel (pages 1–4, cap = 500 tasks)
-    const PAGE_CAP   = 4;
-    const extraPages = Array.from({ length: PAGE_CAP }, (_, i) => i + 1);
-    const results    = await Promise.all(
-      extraPages.map(p =>
-        this._call(`list/${listId}/task`, { ...baseParams, page: p })
-          .then(d => {
-            const n = d?.tasks?.length || 0;
-            if (onProgress && n > 0) onProgress(n);
-            return d;
-          })
-          .catch(() => null)
-      )
-    );
-
-    return [
-      ...firstBatch,
-      ...results
-        .filter(r => r?.tasks?.length)
-        .flatMap(r => r.tasks),
-    ];
+    return allTasks;
   },
 
   // ── Field detection ────────────────────────────────────────
