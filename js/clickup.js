@@ -23,7 +23,7 @@ const ClickUpIntegration = {
   _SYNC_COUNT_KEY: 'cu_last_count',
   _LIST_ID_KEY:    'cu_list_id',
   _CACHE_KEY:      'cu_tasks_cache',
-  _CACHE_TTL:      5 * 60 * 1000,   // 5 minutes in ms
+  _CACHE_TTL:      30 * 60 * 1000,  // 30 minutes in ms
 
   getApiKey()   { return localStorage.getItem(this._API_KEY_KEY) || ''; },
   setApiKey(k)  { localStorage.setItem(this._API_KEY_KEY, String(k).trim()); },
@@ -51,23 +51,38 @@ const ClickUpIntegration = {
   },
 
   _setCache(data) {
+    // ── Slim the tasks before caching ─────────────────────────
+    // A full rawTask contains ~41 custom fields per task (~4-5 MB for 1800+
+    // tasks), which exceeds the localStorage 5 MB quota.
+    // We strip every custom field EXCEPT the 6-7 fieldIds the app actually
+    // uses, reducing the payload to ~300-500 KB regardless of list size.
+    const relevantIds = new Set(Object.values(data.fieldIds || {}).filter(Boolean));
+    const slimTasks   = (data.rawTasks || []).map(t => ({
+      id:           t.id,
+      name:         t.name,
+      status:       t.status,
+      parent:       t.parent,
+      assignees:    (t.assignees || []).map(a => ({ username: a.username || a.name || '' })),
+      list:         t.list   ? { id: t.list.id,   name: t.list.name }   : undefined,
+      folder:       t.folder ? { id: t.folder.id, name: t.folder.name } : undefined,
+      custom_fields: (t.custom_fields || []).filter(cf => relevantIds.has(cf.id)),
+    }));
+
     try {
       localStorage.setItem(this._CACHE_KEY, JSON.stringify({
         timestamp:     Date.now(),
-        tasks:         data.rawTasks,
+        tasks:         slimTasks,
         fieldIds:      data.fieldIds,
         fieldNames:    data.fieldNames,
         resolvedLabel: data.resolvedLabel,
       }));
+      console.info(`[ClickUp] Cached ${slimTasks.length} tasks (slim).`);
     } catch (e) {
-      // QuotaExceededError — list is too large for localStorage (5 MB limit).
-      // Cache is skipped; every sync will hit the API directly. Not a fatal error.
       if (e.name === 'QuotaExceededError' || e.code === 22) {
-        console.warn(`[ClickUp] Cache skipped — ${data.rawTasks?.length ?? '?'} tasks exceed localStorage quota. Syncing live every time.`);
+        console.warn(`[ClickUp] Cache still too large after slimming (${slimTasks.length} tasks). Syncing live every time.`);
       } else {
         console.warn('[ClickUp] Cache write failed:', e.message);
       }
-      // Remove any stale partial entry so isCacheFresh() returns false correctly
       try { localStorage.removeItem(this._CACHE_KEY); } catch (_) {}
     }
   },
