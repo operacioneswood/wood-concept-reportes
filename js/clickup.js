@@ -152,6 +152,25 @@ const ClickUpIntegration = {
     };
     let rawTasks = await this._fetchFromLists(listIds, progressCb);
 
+    // ── DEBUG 26111 (remove after diagnosis) ──────────────────
+    const _d26 = rawTasks.filter(t =>
+      t.name?.includes('26111') ||
+      t.name?.toLowerCase().includes('puertas pasillo') ||
+      (t.custom_fields || []).some(f => String(f.value ?? '').includes('26111'))
+    );
+    console.group('%c[DEBUG] 26111 / PUERTAS PASILLO search', 'color:#7c3aed;font-weight:bold');
+    console.log('Matches in rawTasks:', _d26.length);
+    console.log(_d26.map(t => ({
+      id:      t.id,
+      name:    t.name,
+      status:  t.status?.status,
+      parent:  t.parent,
+      list:    t.list?.name,
+      fields:  (t.custom_fields || []).filter(f => f.value != null).map(f => ({ name: f.name, value: f.value })),
+    })));
+    console.groupEnd();
+    // ── END DEBUG ─────────────────────────────────────────────
+
     // ── Step 3 — Traverse parent if the list was empty ────────
     if (rawTasks.length === 0 && listIds.length === 1) {
       const parent = await this._resolveParentOf(id);
