@@ -1210,7 +1210,14 @@ const Schedule = {
     this._jrLoad    = jrLoad;
     this._loadInfoFn = loadInfo;
 
-    // ── Section 1: Jr status cards (Fix 1 — 3-line layout) ──
+    // Hoisted so both Section 1 and Section 2 can use it
+    const STATUS_ORDER = [
+      'en dibujo', 'revision de constructivo',
+      'enviado a aprobacion', 'aprobado',
+      'proximos a entrar', 'asignado',
+    ];
+
+    // ── Section 1: Jr status panel (horizontal, 3 columns) ───
     const jrCardsHtml = this.JR_LIST.map(jr => {
       const load  = jrLoad[jr];
       const info  = loadInfo(load.niveles);
@@ -1237,15 +1244,7 @@ const Schedule = {
               </div>`;
           }).join('');
 
-      // Status breakdown summary
-      const STATUS_ORDER = [
-        'en dibujo', 'revision de constructivo',
-        'enviado a aprobacion', 'aprobado',
-        'proximos a entrar', 'asignado',
-      ];
-      const counts = {};
-      for (const i of load.items) counts[i.status] = (counts[i.status] || 0) + 1;
-      // Also count ALL items in _apiTasks assigned to this Jr (includes pending)
+      // Status breakdown summary (all tasks including pending)
       const allJrTasks = this._apiTasks.filter(t => t.allDesigners.includes(jr));
       const allCounts = {};
       for (const t of allJrTasks) allCounts[t.status] = (allCounts[t.status] || 0) + 1;
@@ -1263,7 +1262,7 @@ const Schedule = {
         : '';
 
       return `
-        <div class="asign-jr-card">
+        <div class="asign-jr-panel-col">
           <div class="asign-jr-header">
             <span class="sched-pair-dot" style="background:${color}"></span>
             <span class="asign-jr-name">${esc(jr)}</span>
@@ -1273,7 +1272,7 @@ const Schedule = {
           <div class="asign-jr-items">${itemRows}</div>
           ${summaryRow}
         </div>`;
-    }).join('');
+    }).join('<div class="asign-jr-panel-divider"></div>');
 
     // ── Section 2: Items needing a Jr ────────────────────────
     // All tasks (from _apiTasks) that do NOT yet have a Jr assigned
@@ -1447,6 +1446,20 @@ const Schedule = {
             <button class="asign-dropzone-undo" data-task-id="${esc(c.taskId)}" title="Deshacer">✕</button>
           </div>`).join('');
 
+      // Status breakdown chips — same as Section 1
+      const boardJrTasks = this._apiTasks.filter(t => t.allDesigners.includes(jr));
+      const boardCounts  = {};
+      for (const t of boardJrTasks) boardCounts[t.status] = (boardCounts[t.status] || 0) + 1;
+      const boardChipsHtml = STATUS_ORDER
+        .filter(s => boardCounts[s])
+        .map(s => {
+          const [sbg, sfg] = STATUS_COLORS[s] || ['#f3f4f6', '#374151'];
+          const slabel = STATUS_LABEL[s] || s;
+          return `<span class="asign-status-chip" style="background:${sbg};color:${sfg}">${esc(slabel)} <b>${boardCounts[s]}</b></span>`;
+        }).join('');
+      const boardChips = boardChipsHtml
+        ? `<div class="asign-jr-board-chips">${boardChipsHtml}</div>` : '';
+
       return `
         <div class="asign-jr-dropcard" data-jr="${esc(jr)}">
           <div class="asign-jr-dropcard-hdr">
@@ -1459,6 +1472,7 @@ const Schedule = {
             <div class="asign-jr-loadbar" id="asign-bar-${jrId}"
                  style="width:${barWidth}%;background:${barColor};transition:width 0.4s ease,background-color 0.3s ease"></div>
           </div>
+          ${boardChips}
           <div class="asign-jr-dropzone" id="asign-dropzone-${jrId}" data-jr="${esc(jr)}">
             ${draftItemsHtml || `<span class="asign-dropzone-hint">Arrastra ítems aquí</span>`}
           </div>
@@ -1508,7 +1522,7 @@ const Schedule = {
     container.innerHTML = `
       <div class="asign-wrap">
         <div class="asign-section-title">ESTADO ACTUAL DEL EQUIPO</div>
-        <div class="asign-jr-grid">${jrCardsHtml}</div>
+        <div class="asign-jr-panel">${jrCardsHtml}</div>
 
         <div class="asign-section-title" style="margin-top:40px">ASIGNAR ÍTEMS</div>
         ${needsJr.length > 0
