@@ -1206,6 +1206,10 @@ const Schedule = {
       return               { dot: '🔴', label: 'Saturado',    cls: 'load-hi'  };
     };
 
+    // Store refs so helper methods (_updateJrBar, _updateBalance) can access them
+    this._jrLoad    = jrLoad;
+    this._loadInfoFn = loadInfo;
+
     // ── Section 1: Jr status cards (Fix 1 — 3-line layout) ──
     const jrCardsHtml = this.JR_LIST.map(jr => {
       const load  = jrLoad[jr];
@@ -1324,168 +1328,160 @@ const Schedule = {
       }
     }
 
-    // ── Fix 4 — Dropdown: Sr optgroup (only when item has no Sr) + Jr optgroup
-    const buildDropdownOptions = (task, currentDraft) => {
-      const hasSrAssigned = task.allDesigners.some(d => this.SR_LIST.includes(d));
-      let html = `<option value="">Asignar a…</option>`;
-      // Sr section: only shown for items with no Sr yet
-      if (!hasSrAssigned) {
-        html += `<optgroup label="── Asignar Sr ──">` +
-          this.SR_LIST.map(sr => {
-            const niv = fmtNum((srLoad[sr] || { niveles: 0 }).niveles);
-            const sel = currentDraft?.assignType === 'sr' && currentDraft.assignName === sr ? 'selected' : '';
-            return `<option value="sr:${esc(sr)}" ${sel}>${esc(sr)} · Σ ${niv} niv.</option>`;
-          }).join('') + `</optgroup>`;
-      }
-      // Jr section: always shown
-      html += `<optgroup label="── Asignar Jr ──">` +
-        this.JR_LIST.map(jr => {
-          const info = loadInfo((jrLoad[jr] || { niveles: 0 }).niveles);
-          const sel  = currentDraft?.assignType === 'jr' && currentDraft.assignName === jr ? 'selected' : '';
-          return `<option value="jr:${esc(jr)}" ${sel}>${esc(jr)} · Σ ${fmtNum((jrLoad[jr] || { niveles: 0 }).niveles)} niv. ${info.dot}</option>`;
-        }).join('') + `</optgroup>`;
-      return html;
-    };
-
-    // Render one item row with assignment dropdown
-    const renderPendingRow = (task) => {
-      const draft    = this._asignDraft.get(task.taskId);
-      const hasDraft = !!draft;
+    // ── Render each draggable item for the board ─────────────
+    const renderDragItem = (task, sr) => {
+      const draft   = this._asignDraft.get(task.taskId);
+      const isDraft = !!draft;
+      const niv     = task.nivel !== null ? `N${fmtNum(task.nivel)}` : '—';
+      const opStr   = task.op ? `OP ${task.op}` : '';
       const [sbg, sfg] = STATUS_COLORS[task.status] || ['#f3f4f6', '#374151'];
-      const slabel = STATUS_LABEL[task.status] || task.status;
-      const niv    = task.nivel !== null ? `N${fmtNum(task.nivel)}` : '—';
-      const opStr  = task.op ? `OP ${task.op}` : '';
+      const slabel  = STATUS_LABEL[task.status] || task.status;
+      const jrBadge = isDraft
+        ? `<span class="asign-draft-jr-badge">→ ${esc(draft.assignName)}</span>` : '';
       return `
-        <div class="asign-pending-row${hasDraft ? ' has-draft' : ''}" data-task-id="${esc(task.taskId)}">
-          <div class="asign-prow-info">
-            <div class="asign-prow-name">${esc(task.name)}${opStr ? ` <span class="asign-prow-op">${esc(opStr)}</span>` : ''}</div>
-            <div class="asign-prow-meta">
+        <div class="asign-drag-item${isDraft ? ' draft-assigned' : ''}"
+             draggable="true"
+             data-task-id="${esc(task.taskId)}"
+             data-task-name="${esc(task.name)}"
+             data-nivel="${task.nivel || 0}"
+             data-sr="${esc(sr || '')}">
+          <span class="asign-drag-handle">⠿</span>
+          <div class="asign-drag-info">
+            <div class="asign-drag-name">${esc(task.name)}${opStr ? ` <span class="asign-prow-op">${esc(opStr)}</span>` : ''}</div>
+            <div class="asign-drag-proj">${esc(task.project || '—')}</div>
+            <div class="asign-drag-meta">
               <span class="asign-prow-niv">${esc(niv)}</span>
               <span class="asign-prow-status" style="background:${sbg};color:${sfg}">${esc(slabel)}</span>
+              ${jrBadge}
             </div>
           </div>
-          <select class="asign-assign-select"
-            data-task-id="${esc(task.taskId)}"
-            data-task-name="${esc(task.name)}">
-            ${buildDropdownOptions(task, draft)}
-          </select>
-          ${hasDraft ? `<span class="asign-draft-tag">✎ ${esc(draft.assignName)}</span>` : ''}
         </div>`;
     };
 
-    // Render collapsible project groups for a list of {projName, tasks} entries
-    const renderProjGroups = (projList, keyPrefix) => {
-      return projList.map(({ projName, tasks: ptasks }, pi) => {
-        const projId = `asign-proj-${keyPrefix}-${pi}`;
-        const n = ptasks.length;
-        const rows = ptasks.map(t => renderPendingRow(t)).join('');
+    // ── Sr board cards (left column) ──────────────────────────
+    const srBoardCards = [
+      ...this.SR_LIST.map(sr => {
+        const projList = bySr[sr];
+        if (!projList.length) return '';
+        const allTasks = projList.flatMap(p => p.tasks);
+        const sigma = fmtNum(allTasks.reduce((s, t) => s + (t.nivel || 0), 0));
+        const color = DESIGNER_COLORS[sr] || '#888';
         return `
-          <div class="asign-proj-row" data-proj-id="${projId}" data-expanded="false">
-            <span class="asign-proj-arrow">▶</span>
-            <span class="asign-proj-name">${esc(projName)}</span>
-            <span class="asign-proj-count">${n} ítem${n !== 1 ? 's' : ''} sin Jr</span>
-          </div>
-          <div class="asign-proj-items" id="${projId}" style="display:none">${rows}</div>`;
-      }).join('');
-    };
+          <div class="asign-sr-boardcard" data-sr="${esc(sr)}">
+            <div class="asign-sr-boardcard-hdr">
+              <span class="sched-pair-dot" style="background:${color}"></span>
+              <span class="asign-sr-boardcard-name">${esc(sr)}</span>
+              <span class="asign-sr-boardcard-sigma">Σ ${sigma} pts</span>
+            </div>
+            <div class="asign-sr-boardcard-items">
+              ${allTasks.map(t => renderDragItem(t, sr)).join('')}
+            </div>
+          </div>`;
+      }),
+      noOwnerProjects.length > 0 ? (() => {
+        const allTasks = noOwnerProjects.flatMap(p => p.tasks);
+        const sigma = fmtNum(allTasks.reduce((s, t) => s + (t.nivel || 0), 0));
+        return `
+          <div class="asign-sr-boardcard" data-sr="">
+            <div class="asign-sr-boardcard-hdr">
+              <span class="sched-pair-dot" style="background:#9ca3af"></span>
+              <span class="asign-sr-boardcard-name">Sin asignar</span>
+              <span class="asign-sr-boardcard-sigma">Σ ${sigma} pts</span>
+            </div>
+            <div class="asign-sr-boardcard-items">
+              ${allTasks.map(t => renderDragItem(t, null)).join('')}
+            </div>
+          </div>`;
+      })() : '',
+    ].filter(Boolean).join('');
 
-    const srSections = this.SR_LIST.map(sr => {
-      const projList = bySr[sr];
-      if (!projList.length) return '';
-      const totalItems = projList.reduce((s, p) => s + p.tasks.length, 0);
-      const color = DESIGNER_COLORS[sr] || '#888';
+    // ── Jr drop cards (right column) ──────────────────────────
+    const jrBoardCards = this.JR_LIST.map((jr, idx) => {
+      const baseLoad  = jrLoad[jr].niveles;
+      const draftLoad = Array.from(this._asignDraft.values())
+        .filter(c => c.assignName === jr)
+        .reduce((s, c) => s + (c.nivel || 0), 0);
+      const totalLoad = baseLoad + draftLoad;
+      const barWidth  = Math.min(100, totalLoad / 20 * 100);
+      const barColor  = totalLoad <= 8 ? '#d1fae5' : totalLoad <= 15 ? '#fef3c7' : '#fee2e2';
+      const info  = loadInfo(totalLoad);
+      const color = DESIGNER_COLORS[jr] || '#888';
+      const jrId  = `jr${idx}`;
+
+      const draftItemsHtml = Array.from(this._asignDraft.values())
+        .filter(c => c.assignName === jr)
+        .map(c => `
+          <div class="asign-dropzone-item" data-task-id="${esc(c.taskId)}">
+            <span class="asign-dropzone-item-name">${esc(c.taskName)}</span>
+            <span class="asign-dropzone-item-niv">${c.nivel ? `N${fmtNum(c.nivel)}` : '—'}</span>
+            <button class="asign-dropzone-undo" data-task-id="${esc(c.taskId)}" title="Deshacer">✕</button>
+          </div>`).join('');
+
       return `
-        <div class="asign-sr-block">
-          <div class="asign-sr-title">
+        <div class="asign-jr-dropcard" data-jr="${esc(jr)}">
+          <div class="asign-jr-dropcard-hdr">
             <span class="sched-pair-dot" style="background:${color}"></span>
-            ${esc(sr)}
-            <span class="sched-pair-count">${totalItems} ítem${totalItems !== 1 ? 's' : ''} sin Jr</span>
+            <span class="asign-jr-name">${esc(jr)}</span>
+            <span class="asign-load-indicator ${info.cls}" id="asign-loaddot-${jrId}">${info.dot} ${info.label}</span>
+            <span class="asign-jr-sigma" id="asign-sigma-${jrId}">Σ ${fmtNum(totalLoad)} pts</span>
           </div>
-          ${renderProjGroups(projList, sr.replace(/\s+/g, ''))}
+          <div class="asign-jr-loadbar-wrap">
+            <div class="asign-jr-loadbar" id="asign-bar-${jrId}"
+                 style="width:${barWidth}%;background:${barColor};transition:width 0.4s ease,background-color 0.3s ease"></div>
+          </div>
+          <div class="asign-jr-dropzone" id="asign-dropzone-${jrId}" data-jr="${esc(jr)}">
+            ${draftItemsHtml || `<span class="asign-dropzone-hint">Arrastra ítems aquí</span>`}
+          </div>
         </div>`;
     }).join('');
 
-    // Truly orphan projects (no Sr anywhere) — show in a neutral block
-    const noOwnerSection = noOwnerProjects.length === 0 ? '' : (() => {
-      const totalItems = noOwnerProjects.reduce((s, p) => s + p.tasks.length, 0);
-      return `
-        <div class="asign-sr-block">
-          <div class="asign-sr-title">
-            <span class="sched-pair-dot" style="background:#9ca3af"></span>
-            Sin asignar
-            <span class="sched-pair-count">${totalItems} ítem${totalItems !== 1 ? 's' : ''}</span>
-          </div>
-          ${renderProjGroups(noOwnerProjects, 'noowner')}
-        </div>`;
-    })();
+    // ── Balance indicator ─────────────────────────────────────
+    const balLoads = this.JR_LIST.map(jr => {
+      const base  = jrLoad[jr].niveles;
+      const draft = Array.from(this._asignDraft.values())
+        .filter(c => c.assignName === jr).reduce((s, c) => s + (c.nivel || 0), 0);
+      return { jr, load: base + draft };
+    });
+    const balMin = Math.min(...balLoads.map(l => l.load));
+    const balMax = Math.max(...balLoads.map(l => l.load));
+    const balRatio = balMin > 0 ? balMax / balMin : 0;
+    const balChips = balLoads.map(l =>
+      `<span class="asign-balance-chip">${loadInfo(l.load).dot} ${esc(l.jr)} <b>${fmtNum(l.load)}</b></span>`
+    ).join('');
+    const balWarn = balRatio > 1.5
+      ? `<span class="asign-balance-warn">⚠ ${esc(balLoads.find(l=>l.load===balMax)?.jr||'')} tiene ${fmtNum(balRatio)}× la carga del más libre — considera redistribuir</span>`
+      : '';
+    const balanceHtml = `
+      <div class="asign-balance" id="asign-balance">
+        <span class="asign-balance-label">Balance del equipo:</span>
+        ${balChips} ${balWarn}
+      </div>`;
 
-    const hasAny = needsJr.length > 0;
+    const boardHtml = `
+      <div class="asign-board">
+        ${balanceHtml}
+        <div class="asign-board-cols">
+          <div class="asign-board-left">${srBoardCards}</div>
+          <div class="asign-board-right">${jrBoardCards}</div>
+        </div>
+      </div>`;
+
     const draftBarHtml = this._asignDraft.size > 0 ? this._buildDraftBar() : '';
 
     container.innerHTML = `
       <div class="asign-wrap">
-        <div class="asign-section-title">Estado actual de Juniors</div>
+        <div class="asign-section-title">ESTADO ACTUAL DEL EQUIPO</div>
         <div class="asign-jr-grid">${jrCardsHtml}</div>
 
-        <div class="asign-section-title" style="margin-top:32px">Ítems sin Jr asignado</div>
-        ${hasAny
-          ? `<div class="asign-sr-list">${srSections}${noOwnerSection}</div>`
+        <div class="asign-section-title" style="margin-top:40px">ASIGNAR ÍTEMS</div>
+        ${needsJr.length > 0
+          ? boardHtml
           : `<p class="asign-empty-msg" style="padding:16px 0">Todos los ítems activos tienen Jr asignado. 🎉</p>`
         }
       </div>
       <div id="asign-draft-bar" class="asign-draft-bar${this._asignDraft.size > 0 ? ' visible' : ''}">${draftBarHtml}</div>`;
 
-    // ── Bind project collapsible rows ────────────────────────
-    container.querySelectorAll('.asign-proj-row').forEach(row => {
-      row.addEventListener('click', () => {
-        const projId   = row.dataset.projId;
-        const expanded = row.dataset.expanded === 'true';
-        row.dataset.expanded = expanded ? 'false' : 'true';
-        const arrow = row.querySelector('.asign-proj-arrow');
-        if (arrow) arrow.textContent = expanded ? '▶' : '▼';
-        row.classList.toggle('expanded', !expanded);
-        const itemsEl = document.getElementById(projId);
-        if (itemsEl) itemsEl.style.display = expanded ? 'none' : 'block';
-      });
-    });
-
-    // ── Bind dropdown changes ────────────────────────────────
-    container.querySelectorAll('.asign-assign-select').forEach(sel => {
-      sel.addEventListener('change', () => {
-        const taskId   = sel.dataset.taskId;
-        const taskName = sel.dataset.taskName;
-        const value    = sel.value;
-
-        if (!value) {
-          this._asignDraft.delete(taskId);
-        } else {
-          // value is encoded as "sr:Name" or "jr:Name"
-          const colonIdx   = value.indexOf(':');
-          const assignType = value.slice(0, colonIdx);          // 'sr' | 'jr'
-          const assignName = value.slice(colonIdx + 1);         // display name
-          this._asignDraft.set(taskId, {
-            taskId,
-            taskName,
-            assignType,
-            assignName,
-            assignUserId: this._userIdMap[assignName] || null,
-          });
-        }
-
-        // Update row highlight
-        const row = container.querySelector(`.asign-pending-row[data-task-id="${CSS.escape(taskId)}"]`);
-        if (row) row.classList.toggle('has-draft', !!value);
-
-        // Update draft bar
-        const bar = document.getElementById('asign-draft-bar');
-        if (bar) {
-          bar.innerHTML = this._asignDraft.size > 0 ? this._buildDraftBar() : '';
-          bar.className = `asign-draft-bar${this._asignDraft.size > 0 ? ' visible' : ''}`;
-          this._bindDraftBar(container, bar);
-        }
-      });
-    });
-
+    this._bindBoard(container);
     this._bindDraftBar(container, document.getElementById('asign-draft-bar'));
   },
 
@@ -1493,17 +1489,20 @@ const Schedule = {
     const changes = Array.from(this._asignDraft.values());
     const list = changes.map(c => {
       const typeLabel = c.assignType === 'sr' ? 'Sr' : 'Jr';
-      return `<span class="asign-draft-chip"><b>${esc(c.assignName)}</b> <span style="opacity:.6;font-size:10px">${typeLabel}</span> ← ${esc(c.taskName)}</span>`;
+      return `<span class="asign-draft-chip">
+        <b>${esc(c.assignName)}</b> <span style="opacity:.6;font-size:10px">${typeLabel}</span> ← ${esc(c.taskName)}
+        <button class="asign-chip-undo" data-task-id="${esc(c.taskId)}" title="Deshacer este ítem">✕</button>
+      </span>`;
     }).join('');
     const n = changes.length;
     return `
       <div class="asign-draft-inner">
         <div class="asign-draft-info">
-          <span class="asign-draft-count">${n} cambio${n !== 1 ? 's' : ''} pendiente${n !== 1 ? 's' : ''}</span>
+          <span class="asign-draft-count">📋 ${n} cambio${n !== 1 ? 's' : ''} pendiente${n !== 1 ? 's' : ''}</span>
           <div class="asign-draft-chips">${list}</div>
         </div>
         <div class="asign-draft-actions">
-          <button class="btn-secondary" id="asign-discard-btn">Descartar</button>
+          <button class="btn-secondary" id="asign-discard-btn">Descartar todo</button>
           <button class="btn-primary"   id="asign-confirm-btn">Confirmar y sincronizar con ClickUp →</button>
         </div>
       </div>`;
@@ -1518,6 +1517,12 @@ const Schedule = {
       this._renderAsignacion(container);
     };
     if (confirmBtn) confirmBtn.onclick = () => this._syncAsignacion(container);
+    bar.querySelectorAll('.asign-chip-undo').forEach(btn => {
+      btn.onclick = e => {
+        e.stopPropagation();
+        this._undoDraftItem(btn.dataset.taskId, container);
+      };
+    });
   },
 
   async _syncAsignacion(container) {
@@ -1599,7 +1604,204 @@ const Schedule = {
     }
   },
 
-  // ── Drag-and-drop ──────────────────────────────────────────
+  // ── Board drag-and-drop (Asignación board) ────────────────
+
+  _bindBoard(container) {
+    let dragTaskId = null;
+    let dragNivel  = 0;
+
+    container.querySelectorAll('.asign-drag-item').forEach(item => {
+      item.addEventListener('dragstart', e => {
+        dragTaskId = item.dataset.taskId;
+        dragNivel  = parseFloat(item.dataset.nivel) || 0;
+        e.dataTransfer.effectAllowed = 'move';
+        item.classList.add('dragging');
+        setTimeout(() => { item.style.opacity = '0.4'; }, 0);
+      });
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        item.style.opacity = '';
+        dragTaskId = null;
+        dragNivel  = 0;
+        container.querySelectorAll('.asign-jr-dropzone').forEach(dz =>
+          dz.classList.remove('dz-ok', 'dz-warn', 'dz-danger')
+        );
+      });
+    });
+
+    container.querySelectorAll('.asign-jr-dropzone').forEach(dz => {
+      dz.addEventListener('dragover', e => {
+        e.preventDefault();
+        if (!dragTaskId || !this._jrLoad) return;
+        const jr = dz.dataset.jr;
+        if (!this.JR_LIST.includes(jr)) return;
+        const base  = this._jrLoad[jr]?.niveles || 0;
+        const draft = Array.from(this._asignDraft.values())
+          .filter(c => c.assignName === jr && c.taskId !== dragTaskId)
+          .reduce((s, c) => s + (c.nivel || 0), 0);
+        const projected = base + draft + dragNivel;
+        dz.classList.remove('dz-ok', 'dz-warn', 'dz-danger');
+        if      (projected <= 8)  dz.classList.add('dz-ok');
+        else if (projected <= 15) dz.classList.add('dz-warn');
+        else                      dz.classList.add('dz-danger');
+      });
+      dz.addEventListener('dragleave', e => {
+        if (!dz.contains(e.relatedTarget))
+          dz.classList.remove('dz-ok', 'dz-warn', 'dz-danger');
+      });
+      dz.addEventListener('drop', e => {
+        e.preventDefault();
+        dz.classList.remove('dz-ok', 'dz-warn', 'dz-danger');
+        if (!dragTaskId) return;
+        const jr = dz.dataset.jr;
+        if (!this.JR_LIST.includes(jr)) return;
+
+        const task = this._apiTasks.find(t => t.taskId === dragTaskId);
+        if (!task) return;
+        const userId = this._userIdMap[jr] || null;
+
+        // Save/update draft
+        this._asignDraft.set(dragTaskId, {
+          taskId:       dragTaskId,
+          taskName:     task.name,
+          assignType:   'jr',
+          assignName:   jr,
+          assignUserId: userId,
+          nivel:        task.nivel || 0,
+        });
+
+        // Mark source Sr item as draft-assigned
+        const srcItem = container.querySelector(`.asign-drag-item[data-task-id="${CSS.escape(dragTaskId)}"]`);
+        if (srcItem) {
+          srcItem.classList.add('draft-assigned');
+          let badge = srcItem.querySelector('.asign-draft-jr-badge');
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'asign-draft-jr-badge';
+            const meta = srcItem.querySelector('.asign-drag-meta');
+            if (meta) meta.appendChild(badge);
+          }
+          badge.textContent = `→ ${jr}`;
+        }
+
+        // Remove this task from any other dropzone (if re-assigned)
+        container.querySelectorAll(`.asign-dropzone-item[data-task-id="${CSS.escape(dragTaskId)}"]`).forEach(el => el.remove());
+
+        // Remove the hint if present
+        const hint = dz.querySelector('.asign-dropzone-hint');
+        if (hint) hint.remove();
+
+        // Append dropzone item
+        const niv = task.nivel !== null ? `N${fmtNum(task.nivel)}` : '—';
+        const itemEl = document.createElement('div');
+        itemEl.className = 'asign-dropzone-item';
+        itemEl.dataset.taskId = dragTaskId;
+        itemEl.innerHTML = `
+          <span class="asign-dropzone-item-name">${esc(task.name)}</span>
+          <span class="asign-dropzone-item-niv">${esc(niv)}</span>
+          <button class="asign-dropzone-undo" data-task-id="${esc(dragTaskId)}" title="Deshacer">✕</button>`;
+        dz.appendChild(itemEl);
+        itemEl.querySelector('.asign-dropzone-undo').addEventListener('click', () => {
+          this._undoDraftItem(dragTaskId, container);
+        });
+
+        this._updateJrBar(jr, container);
+        this._updateBalance(container);
+        this._refreshDraftBar(container);
+      });
+    });
+
+    // Bind undo buttons already in dropzones (restored draft state on re-render)
+    container.querySelectorAll('.asign-dropzone-undo').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._undoDraftItem(btn.dataset.taskId, container);
+      });
+    });
+  },
+
+  _updateJrBar(jr, container) {
+    const jrIdx = this.JR_LIST.indexOf(jr);
+    if (jrIdx < 0 || !this._jrLoad || !this._loadInfoFn) return;
+    const jrId  = `jr${jrIdx}`;
+    const base  = this._jrLoad[jr]?.niveles || 0;
+    const draft = Array.from(this._asignDraft.values())
+      .filter(c => c.assignName === jr).reduce((s, c) => s + (c.nivel || 0), 0);
+    const total    = base + draft;
+    const barPct   = Math.min(100, total / 20 * 100);
+    const barColor = total <= 8 ? '#d1fae5' : total <= 15 ? '#fef3c7' : '#fee2e2';
+    const info     = this._loadInfoFn(total);
+
+    const barEl   = document.getElementById(`asign-bar-${jrId}`);
+    const sigmaEl = document.getElementById(`asign-sigma-${jrId}`);
+    const dotEl   = document.getElementById(`asign-loaddot-${jrId}`);
+    if (barEl)   { barEl.style.width = `${barPct}%`; barEl.style.background = barColor; }
+    if (sigmaEl) sigmaEl.textContent = `Σ ${fmtNum(total)} pts`;
+    if (dotEl)   { dotEl.textContent = `${info.dot} ${info.label}`; dotEl.className = `asign-load-indicator ${info.cls}`; }
+  },
+
+  _updateBalance(container) {
+    if (!this._jrLoad || !this._loadInfoFn) return;
+    const balEl = document.getElementById('asign-balance');
+    if (!balEl) return;
+    const balLoads = this.JR_LIST.map(jr => {
+      const base  = this._jrLoad[jr]?.niveles || 0;
+      const draft = Array.from(this._asignDraft.values())
+        .filter(c => c.assignName === jr).reduce((s, c) => s + (c.nivel || 0), 0);
+      return { jr, load: base + draft };
+    });
+    const balMin   = Math.min(...balLoads.map(l => l.load));
+    const balMax   = Math.max(...balLoads.map(l => l.load));
+    const balRatio = balMin > 0 ? balMax / balMin : 0;
+    const balChips = balLoads.map(l =>
+      `<span class="asign-balance-chip">${this._loadInfoFn(l.load).dot} ${esc(l.jr)} <b>${fmtNum(l.load)}</b></span>`
+    ).join('');
+    const balWarn = balRatio > 1.5
+      ? `<span class="asign-balance-warn">⚠ ${esc(balLoads.find(l => l.load === balMax)?.jr || '')} tiene ${fmtNum(balRatio)}× la carga del más libre — considera redistribuir</span>`
+      : '';
+    balEl.innerHTML = `<span class="asign-balance-label">Balance del equipo:</span>${balChips} ${balWarn}`;
+  },
+
+  _undoDraftItem(taskId, container) {
+    const draft = this._asignDraft.get(taskId);
+    if (!draft) return;
+    const jr = draft.assignName;
+    this._asignDraft.delete(taskId);
+
+    // Remove from dropzones
+    container.querySelectorAll(`.asign-dropzone-item[data-task-id="${CSS.escape(taskId)}"]`).forEach(el => {
+      const dz = el.closest('.asign-jr-dropzone');
+      el.remove();
+      if (dz && !dz.querySelector('.asign-dropzone-item')) {
+        dz.innerHTML = `<span class="asign-dropzone-hint">Arrastra ítems aquí</span>`;
+      }
+    });
+
+    // Un-mark the Sr item
+    const srcItem = container.querySelector(`.asign-drag-item[data-task-id="${CSS.escape(taskId)}"]`);
+    if (srcItem) {
+      srcItem.classList.remove('draft-assigned');
+      srcItem.querySelector('.asign-draft-jr-badge')?.remove();
+    }
+
+    this._updateJrBar(jr, container);
+    this._updateBalance(container);
+    this._refreshDraftBar(container);
+  },
+
+  _refreshDraftBar(container) {
+    const bar = document.getElementById('asign-draft-bar');
+    if (!bar) return;
+    if (this._asignDraft.size === 0) {
+      bar.classList.remove('visible');
+      bar.innerHTML = '';
+    } else {
+      bar.classList.add('visible');
+      bar.innerHTML = this._buildDraftBar();
+      this._bindDraftBar(container, bar);
+    }
+  },
+
+  // ── Drag-and-drop (Cronograma reorder) ────────────────────
 
   _bindDrag(container, pairResults) {
     let src = null;

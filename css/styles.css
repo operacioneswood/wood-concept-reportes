@@ -1567,6 +1567,283 @@ body {
   line-height: 14px;
 }
 
+/* ── Asignación board (Section 2 drag-and-drop) ── */
+.asign-board {
+  margin-top: 8px;
+}
+.asign-balance {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  margin-bottom: 14px;
+  font-size: 12.5px;
+}
+.asign-balance-label {
+  font-weight: 600;
+  color: var(--muted);
+  margin-right: 4px;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.asign-balance-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--divider);
+  padding: 3px 10px;
+  border-radius: 100px;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.asign-balance-warn {
+  font-size: 11.5px;
+  color: #92400e;
+  background: #fef3c7;
+  padding: 3px 10px;
+  border-radius: 100px;
+  margin-left: 4px;
+  font-weight: 500;
+}
+.asign-board-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .asign-board-cols { grid-template-columns: 1fr; }
+}
+.asign-board-left,
+.asign-board-right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Sr board cards */
+.asign-sr-boardcard {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.asign-sr-boardcard-hdr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--bg);
+}
+.asign-sr-boardcard-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  flex: 1;
+}
+.asign-sr-boardcard-sigma {
+  font-size: 11.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.asign-sr-boardcard-items {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 40px;
+}
+
+/* Draggable items */
+.asign-drag-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: grab;
+  transition: background 0.12s, opacity 0.15s, border-color 0.15s;
+  user-select: none;
+}
+.asign-drag-item:hover { background: var(--divider); }
+.asign-drag-item.draft-assigned {
+  background: #f0fdf4;
+  border-color: #a7f3d0;
+}
+.asign-drag-item.dragging { opacity: 0.4; cursor: grabbing; }
+.asign-drag-handle {
+  color: var(--faint);
+  font-size: 14px;
+  line-height: 1;
+  margin-top: 2px;
+  flex-shrink: 0;
+  cursor: grab;
+}
+.asign-drag-info { flex: 1; min-width: 0; }
+.asign-drag-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.asign-drag-proj {
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.asign-drag-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.asign-draft-jr-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #065f46;
+  background: #d1fae5;
+  border: 1px solid #a7f3d0;
+  padding: 1px 7px;
+  border-radius: 100px;
+  white-space: nowrap;
+}
+
+/* Jr drop cards */
+.asign-jr-dropcard {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.asign-jr-dropcard-hdr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--bg);
+  flex-wrap: wrap;
+}
+.asign-jr-sigma {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.asign-jr-loadbar-wrap {
+  height: 5px;
+  background: var(--divider);
+  width: 100%;
+}
+.asign-jr-loadbar {
+  height: 100%;
+  border-radius: 0;
+  min-width: 0;
+  transition: width 0.4s ease, background-color 0.3s ease;
+}
+.asign-jr-dropzone {
+  min-height: 60px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 2px dashed transparent;
+  border-radius: 0 0 var(--r) var(--r);
+  transition: border-color 0.15s, background 0.15s;
+}
+.asign-jr-dropzone.dz-ok {
+  border-color: #10b981;
+  background: #f0fdf4;
+}
+.asign-jr-dropzone.dz-warn {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+.asign-jr-dropzone.dz-danger {
+  border-color: #ef4444;
+  background: #fff1f2;
+}
+.asign-dropzone-hint {
+  font-size: 12px;
+  color: var(--faint);
+  text-align: center;
+  padding: 10px 0;
+  pointer-events: none;
+  width: 100%;
+}
+.asign-dropzone-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--divider);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.asign-dropzone-item-name {
+  flex: 1;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.asign-dropzone-item-niv {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--card);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.asign-dropzone-undo {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.12s, background 0.12s;
+}
+.asign-dropzone-undo:hover { color: #ef4444; background: #fee2e2; }
+
+/* Per-chip undo in draft bar */
+.asign-chip-undo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: #1e40af;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 2px;
+  margin-left: 3px;
+  opacity: 0.6;
+  transition: opacity 0.12s;
+  vertical-align: middle;
+}
+.asign-chip-undo:hover { opacity: 1; color: #ef4444; }
+
 /* ════════════════════════════════════════════════════════════
    PRINT STYLES
    ════════════════════════════════════════════════════════════ */
