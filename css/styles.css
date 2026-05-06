@@ -1580,7 +1580,7 @@ body {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--r);
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   font-size: 12.5px;
 }
 .asign-balance-label {
@@ -1611,54 +1611,119 @@ body {
   margin-left: 4px;
   font-weight: 500;
 }
-.asign-board-cols {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  align-items: start;
+
+/* Fixed-height horizontal panel */
+.asign-board-panel {
+  display: flex;
+  height: calc(100vh - 360px);
+  min-height: 520px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--card);
 }
-@media (max-width: 900px) {
-  .asign-board-cols { grid-template-columns: 1fr; }
+.asign-board-half-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--faint);
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--divider);
+  flex-shrink: 0;
 }
-.asign-board-left,
-.asign-board-right {
+/* Left — Sr 2×2 grid */
+.asign-board-left {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  overflow: hidden;
+  min-width: 0;
+}
+.asign-sr-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: min-content;
+  gap: 8px;
+  padding: 8px;
+  overflow-y: auto;
+  align-content: start;
+}
+/* Vertical divider */
+.asign-board-divider {
+  width: 1px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+/* Right — Jr stacked list */
+.asign-board-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+.asign-jr-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* Sr board cards */
 .asign-sr-boardcard {
-  background: var(--card);
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--r);
+  border-radius: 8px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .asign-sr-boardcard-hdr {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 6px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--divider);
-  background: var(--bg);
+  background: var(--card);
+  flex-shrink: 0;
 }
 .asign-sr-boardcard-name {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text);
   flex: 1;
-}
-.asign-sr-boardcard-sigma {
-  font-size: 11.5px;
-  color: var(--faint);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
+.asign-sr-boardcard-sigma {
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.asign-sr-loadbar-wrap {
+  height: 4px;
+  background: var(--divider);
+  width: 100%;
+  flex-shrink: 0;
+}
+.asign-sr-loadbar {
+  height: 100%;
+  min-width: 0;
+  transition: width 0.4s ease, background-color 0.3s ease;
+}
 .asign-sr-boardcard-items {
-  padding: 6px;
+  padding: 5px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-height: 40px;
+  min-height: 36px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 /* Draggable items */
@@ -1723,47 +1788,51 @@ body {
   white-space: nowrap;
 }
 
-/* Jr drop cards */
+/* Jr drop cards — each takes 1/3 of the right panel height */
 .asign-jr-dropcard {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
 }
+.asign-jr-dropcard:last-child { border-bottom: none; }
 .asign-jr-dropcard-hdr {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--divider);
   background: var(--bg);
+  flex-shrink: 0;
   flex-wrap: wrap;
 }
 .asign-jr-sigma {
   margin-left: auto;
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--faint);
   white-space: nowrap;
 }
 .asign-jr-loadbar-wrap {
-  height: 5px;
+  height: 4px;
   background: var(--divider);
   width: 100%;
+  flex-shrink: 0;
 }
 .asign-jr-loadbar {
   height: 100%;
-  border-radius: 0;
   min-width: 0;
   transition: width 0.4s ease, background-color 0.3s ease;
 }
 .asign-jr-dropzone {
-  min-height: 60px;
-  padding: 8px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   border: 2px dashed transparent;
-  border-radius: 0 0 var(--r) var(--r);
   transition: border-color 0.15s, background 0.15s;
 }
 .asign-jr-dropzone.dz-ok {

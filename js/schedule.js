@@ -1358,20 +1358,44 @@ const Schedule = {
         </div>`;
     };
 
-    // ── Sr board cards (left column) ──────────────────────────
+    // Store Sr task map so _updateSrBar can recalculate remaining nivel reactively
+    this._srTasks = new Map();
+    for (const sr of this.SR_LIST) {
+      this._srTasks.set(sr, bySr[sr].flatMap(p => p.tasks));
+    }
+    if (noOwnerProjects.length > 0) {
+      this._srTasks.set('', noOwnerProjects.flatMap(p => p.tasks));
+    }
+
+    // Helper: remaining unassigned nivel for an Sr (deduct already-drafted items)
+    const srRemaining = tasks => {
+      const drafted = Array.from(this._asignDraft.values())
+        .filter(c => tasks.some(t => t.taskId === c.taskId))
+        .reduce((s, c) => s + (c.nivel || 0), 0);
+      return tasks.reduce((s, t) => s + (t.nivel || 0), 0) - drafted;
+    };
+
+    // ── Sr board cards (left panel) ────────────────────────────
     const srBoardCards = [
-      ...this.SR_LIST.map(sr => {
+      ...this.SR_LIST.map((sr, srIdx) => {
         const projList = bySr[sr];
         if (!projList.length) return '';
         const allTasks = projList.flatMap(p => p.tasks);
-        const sigma = fmtNum(allTasks.reduce((s, t) => s + (t.nivel || 0), 0));
-        const color = DESIGNER_COLORS[sr] || '#888';
+        const srId      = `sr${srIdx}`;
+        const remaining = srRemaining(allTasks);
+        const barWidth  = Math.min(100, remaining / 20 * 100);
+        const barColor  = remaining <= 8 ? '#d1fae5' : remaining <= 15 ? '#fef3c7' : '#fee2e2';
+        const color     = DESIGNER_COLORS[sr] || '#888';
         return `
           <div class="asign-sr-boardcard" data-sr="${esc(sr)}">
             <div class="asign-sr-boardcard-hdr">
               <span class="sched-pair-dot" style="background:${color}"></span>
               <span class="asign-sr-boardcard-name">${esc(sr)}</span>
-              <span class="asign-sr-boardcard-sigma">Σ ${sigma} pts</span>
+              <span class="asign-sr-boardcard-sigma" id="asign-sr-sigma-${srId}">Σ ${fmtNum(remaining)} pts</span>
+            </div>
+            <div class="asign-sr-loadbar-wrap">
+              <div class="asign-sr-loadbar" id="asign-sr-bar-${srId}"
+                   style="width:${barWidth}%;background:${barColor};transition:width 0.4s ease,background-color 0.3s ease"></div>
             </div>
             <div class="asign-sr-boardcard-items">
               ${allTasks.map(t => renderDragItem(t, sr)).join('')}
@@ -1379,14 +1403,20 @@ const Schedule = {
           </div>`;
       }),
       noOwnerProjects.length > 0 ? (() => {
-        const allTasks = noOwnerProjects.flatMap(p => p.tasks);
-        const sigma = fmtNum(allTasks.reduce((s, t) => s + (t.nivel || 0), 0));
+        const allTasks  = noOwnerProjects.flatMap(p => p.tasks);
+        const remaining = srRemaining(allTasks);
+        const barWidth  = Math.min(100, remaining / 20 * 100);
+        const barColor  = remaining <= 8 ? '#d1fae5' : remaining <= 15 ? '#fef3c7' : '#fee2e2';
         return `
           <div class="asign-sr-boardcard" data-sr="">
             <div class="asign-sr-boardcard-hdr">
               <span class="sched-pair-dot" style="background:#9ca3af"></span>
               <span class="asign-sr-boardcard-name">Sin asignar</span>
-              <span class="asign-sr-boardcard-sigma">Σ ${sigma} pts</span>
+              <span class="asign-sr-boardcard-sigma" id="asign-sr-sigma-sr-none">Σ ${fmtNum(remaining)} pts</span>
+            </div>
+            <div class="asign-sr-loadbar-wrap">
+              <div class="asign-sr-loadbar" id="asign-sr-bar-sr-none"
+                   style="width:${barWidth}%;background:${barColor};transition:width 0.4s ease,background-color 0.3s ease"></div>
             </div>
             <div class="asign-sr-boardcard-items">
               ${allTasks.map(t => renderDragItem(t, null)).join('')}
@@ -1460,9 +1490,16 @@ const Schedule = {
     const boardHtml = `
       <div class="asign-board">
         ${balanceHtml}
-        <div class="asign-board-cols">
-          <div class="asign-board-left">${srBoardCards}</div>
-          <div class="asign-board-right">${jrBoardCards}</div>
+        <div class="asign-board-panel">
+          <div class="asign-board-left">
+            <div class="asign-board-half-title">SENIORS</div>
+            <div class="asign-sr-grid">${srBoardCards}</div>
+          </div>
+          <div class="asign-board-divider"></div>
+          <div class="asign-board-right">
+            <div class="asign-board-half-title">JUNIORS</div>
+            <div class="asign-jr-list">${jrBoardCards}</div>
+          </div>
         </div>
       </div>`;
 
@@ -1609,11 +1646,13 @@ const Schedule = {
   _bindBoard(container) {
     let dragTaskId = null;
     let dragNivel  = 0;
+    let dragSr     = '';   // Sr that owns the dragged item
 
     container.querySelectorAll('.asign-drag-item').forEach(item => {
       item.addEventListener('dragstart', e => {
         dragTaskId = item.dataset.taskId;
         dragNivel  = parseFloat(item.dataset.nivel) || 0;
+        dragSr     = item.dataset.sr || '';
         e.dataTransfer.effectAllowed = 'move';
         item.classList.add('dragging');
         setTimeout(() => { item.style.opacity = '0.4'; }, 0);
@@ -1623,6 +1662,7 @@ const Schedule = {
         item.style.opacity = '';
         dragTaskId = null;
         dragNivel  = 0;
+        dragSr     = '';
         container.querySelectorAll('.asign-jr-dropzone').forEach(dz =>
           dz.classList.remove('dz-ok', 'dz-warn', 'dz-danger')
         );
@@ -1660,7 +1700,7 @@ const Schedule = {
         if (!task) return;
         const userId = this._userIdMap[jr] || null;
 
-        // Save/update draft
+        // Save/update draft (fromSr needed so _undoDraftItem can update the Sr bar)
         this._asignDraft.set(dragTaskId, {
           taskId:       dragTaskId,
           taskName:     task.name,
@@ -1668,6 +1708,7 @@ const Schedule = {
           assignName:   jr,
           assignUserId: userId,
           nivel:        task.nivel || 0,
+          fromSr:       dragSr,
         });
 
         // Mark source Sr item as draft-assigned
@@ -1706,6 +1747,7 @@ const Schedule = {
         });
 
         this._updateJrBar(jr, container);
+        this._updateSrBar(dragSr, container);
         this._updateBalance(container);
         this._refreshDraftBar(container);
       });
@@ -1761,10 +1803,27 @@ const Schedule = {
     balEl.innerHTML = `<span class="asign-balance-label">Balance del equipo:</span>${balChips} ${balWarn}`;
   },
 
+  _updateSrBar(sr, container) {
+    if (!this._srTasks) return;
+    const tasks     = this._srTasks.get(sr) || [];
+    const remaining = tasks
+      .filter(t => !this._asignDraft.has(t.taskId))
+      .reduce((s, t) => s + (t.nivel || 0), 0);
+    const barPct    = Math.min(100, remaining / 20 * 100);
+    const barColor  = remaining <= 8 ? '#d1fae5' : remaining <= 15 ? '#fef3c7' : '#fee2e2';
+    const srIdx     = this.SR_LIST.indexOf(sr);
+    const srId      = srIdx >= 0 ? `sr${srIdx}` : 'sr-none';
+    const barEl     = document.getElementById(`asign-sr-bar-${srId}`);
+    const sigmaEl   = document.getElementById(`asign-sr-sigma-${srId}`);
+    if (barEl)   { barEl.style.width = `${barPct}%`; barEl.style.background = barColor; }
+    if (sigmaEl) sigmaEl.textContent = `Σ ${fmtNum(remaining)} pts`;
+  },
+
   _undoDraftItem(taskId, container) {
     const draft = this._asignDraft.get(taskId);
     if (!draft) return;
-    const jr = draft.assignName;
+    const jr     = draft.assignName;
+    const fromSr = draft.fromSr ?? '';
     this._asignDraft.delete(taskId);
 
     // Remove from dropzones
@@ -1784,6 +1843,7 @@ const Schedule = {
     }
 
     this._updateJrBar(jr, container);
+    this._updateSrBar(fromSr, container);
     this._updateBalance(container);
     this._refreshDraftBar(container);
   },
