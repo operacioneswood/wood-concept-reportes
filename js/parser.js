@@ -252,14 +252,18 @@ function _cuFieldVal(task, fieldId) {
  *   id           — string
  *   name         — string
  *   parent       — string | null  (null = top-level / project task)
- *   status       — { status: string }
+ *   status       — { status: string, type: string }
  *   assignees    — [{ username: string, ... }]
  *   custom_fields— [{ id, name, value }]
  *
  * `fieldIds` is the object returned by ClickUpIntegration.getFieldIds():
  *   { op, nivel, finDibujo, envio, corrections }
  *
- * Only subtasks (parent !== null) are returned — same as CSV "Task" rows.
+ * IMPORTANT — NO STATUS FILTERING IS DONE HERE.
+ * Whether a task appears in a given month's report is determined ONLY by its
+ * date fields (finDibujo / aprobado / envio) falling in the selected month.
+ * Status (e.g. "en ebanistería", "en dibujo", closed) is preserved in the
+ * output for debugging purposes but is never used to exclude tasks.
  */
 function parseClickUpAPI(rawTasks, fieldIds) {
   const fids = fieldIds || {};
@@ -268,13 +272,14 @@ function parseClickUpAPI(rawTasks, fieldIds) {
   const nameById = new Map(rawTasks.map(t => [t.id, t.name || '']));
 
   return rawTasks
-    // Keep ALL tasks — no parent filter.
+    // Keep ALL tasks — no parent filter and no status filter.
     // Reason: workspaces vary. Some use a subtask hierarchy (parent tasks =
     // projects, subtasks = items). Others use flat tasks inside folders where
     // the folder IS the project name. Filtering on t.parent would silently
     // drop every item in a flat workspace.
-    // Tasks with no dates (e.g. project-container tasks) are naturally
-    // ignored later by the scoring engine's month filter.
+    // Tasks with no dates in the selected month (e.g. project-container tasks,
+    // tasks in "en ebanistería" with an ENVÍO A FÁBRICA date outside the month)
+    // are naturally excluded by the scoring engine's date-based month filter.
     .map(t => {
       // Assignees: format as "[Name1, Name2]" so mapDesignersCU can handle it
       const names    = (t.assignees || []).map(a => (a.username || a.name || '').trim()).filter(Boolean);
@@ -286,6 +291,9 @@ function parseClickUpAPI(rawTasks, fieldIds) {
       const parent = t.parent
         ? (nameById.get(t.parent) || '')
         : (t.folder?.name || t.list?.name || '');
+
+      // Status — preserve the raw string for debugging; not used to filter tasks
+      const status = (t.status?.status || '').trim().toLowerCase();
 
       // Custom field values
       const opVal   = _cuFieldVal(t, fids.op);
@@ -299,6 +307,7 @@ function parseClickUpAPI(rawTasks, fieldIds) {
 
       return {
         name:            t.name || '',
+        status,                          // raw status string, e.g. "en ebanistería"
         parent,
         op:              opVal,
         nivel:           (nivel !== null && !isNaN(nivel)) ? nivel : null,

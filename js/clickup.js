@@ -288,18 +288,20 @@ const ClickUpIntegration = {
   },
 
   /**
-   * Fix 1 — Parallel pagination.
+   * Parallel pagination.
    * Fetch page 0 first. If more pages exist, fetch pages 1–4 in parallel
    * (hard cap of 500 tasks). Reports progress via onProgress(count).
    *
-   * Fix 2 — Request only the fields the app actually uses.
+   * NOTE: Do NOT add a `fields=` parameter here. ClickUp API v2 does not
+   * support a generic system-field selector on the task list endpoint; passing
+   * unknown query params can silently omit tasks in certain statuses.
+   * Status filtering is handled downstream by the scoring engine (date-based),
+   * NOT at the API level.
    */
   async _fetchAllPagesFromList(listId, onProgress) {
-    // Fix 2 — only request fields the app uses
     const baseParams = {
       include_closed: 'true',
       subtasks:       'true',
-      fields: 'id,name,status,assignees,parent,custom_fields,start_date,list,folder',
     };
 
     // Fetch page 0 to check whether more pages exist
