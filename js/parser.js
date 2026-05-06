@@ -296,7 +296,9 @@ function parseClickUpAPI(rawTasks, fieldIds) {
       const status = (t.status?.status || '').trim().toLowerCase();
 
       // Custom field values
-      const opVal   = _cuFieldVal(t, fids.op);
+      // OP: try "NO. OP" (short_text) first; fall back to numeric "OP" field.
+      // Some tasks store the OP in one field, others in the other.
+      const opVal   = _cuFieldVal(t, fids.op) || _cuFieldVal(t, fids.opAlt);
       const nivRaw  = _cuFieldVal(t, fids.nivel);
       const nivel   = nivRaw !== '' ? parseFloat(nivRaw) : null;
       const finRaw  = _cuFieldVal(t, fids.finDibujo);
