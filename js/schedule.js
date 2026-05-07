@@ -252,9 +252,13 @@ const Schedule = {
       const parentSrs      = (parentInfo?.designers || []).filter(d => this.SR_LIST.includes(d));
       const parentInactive = parentInfo ? INACTIVE_PARENT.has(parentInfo.status) : false;
 
-      // Push to _apiTasks only when parent project is in an active design status.
-      // Unassigned tasks are included (allDesigners may be []).
-      if (!parentInactive) {
+      // Push to _apiTasks when:
+      //   a) parent project is in an active design status, OR
+      //   b) the task is already assigned to someone — an active subtask should
+      //      always appear in its designer's list even if the parent OP wrapper
+      //      is still in "asignado" / "cotizacion" (e.g. single-item project where
+      //      the parent task is assigned to the same Jr).
+      if (!parentInactive || designers.length > 0) {
         this._apiTasks.push({
           taskId:       t.id,
           name:         t.name || '',
@@ -785,7 +789,7 @@ const Schedule = {
 
     // ── Build HTML for each Sr+Jr pair ─────────────────────────
     const pairsHTML = active.map(({ pair, pairKey, timeline }) => {
-      const title = pair.jr ? `${pair.sr} + ${pair.jr}` : `${pair.sr} (sin Jr)`;
+      const title = pair.jr ? `${pair.sr} + ${pair.jr}` : pair.sr;
       const color = DESIGNER_COLORS[pair.sr] || '#888';
 
       // Group items by project while preserving priority order.
@@ -1004,7 +1008,7 @@ const Schedule = {
 
     const today = new Date();
     const html  = active.map(({ pair, pairKey, timeline }) => {
-      const title = pair.jr ? `${pair.sr} + ${pair.jr}` : `${pair.sr} (sin Jr)`;
+      const title = pair.jr ? `${pair.sr} + ${pair.jr}` : pair.sr;
 
       const rows = timeline.map((item, idx) => {
         const nStr = item.nivel !== null ? `Nivel ${item.nivel}` : 'Sin nivel';
@@ -1180,13 +1184,48 @@ const Schedule = {
       'asignado':                 ['#f3f4f6', '#6b7280'],
     };
 
-    // ── Jr workload ──────────────────────────────────────────
+    // ── Jr workload — sourced from _apiTasks for consistency with status chips ──
+    // Build reverse pair map: Jr → paired Sr
+    const jrToSr = {};
+    for (const [sr, jr] of Object.entries(this._cfg.pairs || {})) {
+      if (jr) jrToSr[jr] = sr;
+    }
+
     const jrLoad = {};
     for (const jr of this.JR_LIST) {
-      const active = this._items.filter(i => i.designer === jr && !i.pending);
+      const pairedSr = jrToSr[jr] || null;
+
+      // Tasks explicitly assigned to this Jr (any status)
+      const assignedTasks = this._apiTasks.filter(t => t.allDesigners.includes(jr));
+
+      // Pending tasks from the paired Sr's projects that have no Jr yet.
+      // These are "próximos a entrar" / "asignado" tasks that will land on this Jr.
+      const upcomingTasks = pairedSr
+        ? this._apiTasks.filter(t =>
+            t.pending &&
+            !t.allDesigners.some(d => this.JR_LIST.includes(d)) &&
+            (
+              (t.parentSrs && t.parentSrs.includes(pairedSr)) ||
+              t.allDesigners.includes(pairedSr)
+            )
+          )
+        : [];
+
+      // Merge, dedup by taskId
+      const seenIds  = new Set(assignedTasks.map(t => t.taskId));
+      const allTasks = [
+        ...assignedTasks,
+        ...upcomingTasks.filter(t => !seenIds.has(t.taskId)),
+      ];
+      const PENDING_S = new Set(['proximos a entrar', 'asignado']);
+      const active    = allTasks.filter(t => !PENDING_S.has(t.status));
+
       jrLoad[jr] = {
-        niveles: active.reduce((s, i) => s + (i.nivel || 0), 0),
-        items:   active,
+        // Niveles counts only active (non-pending) tasks so workload isn't inflated.
+        niveles:  active.reduce((s, t) => s + (t.nivel || 0), 0),
+        // Item list shows ALL tasks — pending ones appear with their grey badge.
+        items:    allTasks,
+        allTasks: allTasks,   // reused for status chips below
       };
     }
 
@@ -1227,38 +1266,48 @@ const Schedule = {
       const info  = loadInfo(load.niveles);
       const color = DESIGNER_COLORS[jr] || '#888';
 
+      const renderItem = i => {
+        const opStr  = i.op ? `OP ${i.op}` : '';
+        const [sbg, sfg] = STATUS_COLORS[i.status] || ['#f3f4f6', '#374151'];
+        const slabel = STATUS_LABEL[i.status] || i.status;
+        const niv    = i.nivel !== null ? `N${fmtNum(i.nivel)}` : '—';
+        return `
+          <div class="asign-jr-item" data-status="${esc(i.status)}">
+            <div class="asign-jr-item-line1">
+              <span class="asign-jr-item-name">${esc(i.name)}</span>
+              ${opStr ? `<span class="asign-jr-item-op">${esc(opStr)}</span>` : ''}
+            </div>
+            <div class="asign-jr-item-proj">${esc(i.project || '—')}</div>
+            <div class="asign-jr-item-meta">
+              <span class="asign-jr-niv-badge">${esc(niv)}</span>
+              <span class="asign-jr-status-badge" style="background:${sbg};color:${sfg}">${esc(slabel)}</span>
+            </div>
+          </div>`;
+      };
+
+      const PENDING_ST   = new Set(['proximos a entrar', 'asignado']);
+      const pendingItems = load.items.filter(i => PENDING_ST.has(i.status));
+      const activeItems  = load.items.filter(i => !PENDING_ST.has(i.status));
+
+      const pendingSection = pendingItems.length === 0 ? '' : `
+        <div class="asign-jr-pending-header">🕐 Próximos a iniciar</div>
+        ${pendingItems.map(renderItem).join('')}
+        ${activeItems.length > 0 ? '<div class="asign-jr-pending-sep"></div>' : ''}`;
+
       const itemRows = load.items.length === 0
         ? `<p class="asign-empty-msg">Sin ítems activos</p>`
-        : load.items.map(i => {
-            const opStr  = i.op ? `OP ${i.op}` : '';
-            const [sbg, sfg] = STATUS_COLORS[i.status] || ['#f3f4f6', '#374151'];
-            const slabel = STATUS_LABEL[i.status] || i.status;
-            const niv    = i.nivel !== null ? `N${fmtNum(i.nivel)}` : '—';
-            return `
-              <div class="asign-jr-item">
-                <div class="asign-jr-item-line1">
-                  <span class="asign-jr-item-name">${esc(i.name)}</span>
-                  ${opStr ? `<span class="asign-jr-item-op">${esc(opStr)}</span>` : ''}
-                </div>
-                <div class="asign-jr-item-proj">${esc(i.project || '—')}</div>
-                <div class="asign-jr-item-meta">
-                  <span class="asign-jr-niv-badge">${esc(niv)}</span>
-                  <span class="asign-jr-status-badge" style="background:${sbg};color:${sfg}">${esc(slabel)}</span>
-                </div>
-              </div>`;
-          }).join('');
+        : pendingSection + activeItems.map(renderItem).join('');
 
-      // Status breakdown summary (all tasks including pending)
-      const allJrTasks = this._apiTasks.filter(t => t.allDesigners.includes(jr));
+      // Status breakdown summary (all tasks including pending) — same source as items list
       const allCounts = {};
-      for (const t of allJrTasks) allCounts[t.status] = (allCounts[t.status] || 0) + 1;
+      for (const t of load.allTasks) allCounts[t.status] = (allCounts[t.status] || 0) + 1;
 
       const summaryChips = STATUS_ORDER
         .filter(s => allCounts[s])
         .map(s => {
           const [sbg, sfg] = STATUS_COLORS[s] || ['#f3f4f6', '#374151'];
           const slabel = STATUS_LABEL[s] || s;
-          return `<span class="asign-status-chip" style="background:${sbg};color:${sfg}">${esc(slabel)} <b>${allCounts[s]}</b></span>`;
+          return `<span class="asign-status-chip" data-jr="${esc(jr)}" data-status="${esc(s)}" style="background:${sbg};color:${sfg};cursor:pointer">${esc(slabel)} <b>${allCounts[s]}</b></span>`;
         }).join('');
 
       const summaryRow = summaryChips
@@ -1266,11 +1315,10 @@ const Schedule = {
         : '';
 
       return `
-        <div class="asign-jr-panel-col">
+        <div class="asign-jr-panel-col" data-jr="${esc(jr)}">
           <div class="asign-jr-header">
             <span class="sched-pair-dot" style="background:${color}"></span>
             <span class="asign-jr-name">${esc(jr)}</span>
-            <span class="asign-load-indicator ${info.cls}">${info.dot} ${info.label}</span>
             <span class="asign-jr-stats">${fmtNum(load.niveles)} niv. · ${load.items.length} ítem${load.items.length !== 1 ? 's' : ''}</span>
           </div>
           <div class="asign-jr-items">${itemRows}</div>
@@ -1542,6 +1590,44 @@ const Schedule = {
 
     this._bindBoard(container);
     this._bindDraftBar(container, document.getElementById('asign-draft-bar'));
+    this._bindChipFilter(container);
+  },
+
+  _bindChipFilter(container) {
+    const PENDING_ST = new Set(['proximos a entrar', 'asignado']);
+    container.querySelectorAll('.asign-status-chip[data-status]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const status   = chip.dataset.status;
+        const panel    = chip.closest('.asign-jr-panel-col');
+        const itemsEl  = panel?.querySelector('.asign-jr-items');
+        if (!panel || !itemsEl) return;
+
+        const wasActive = chip.classList.contains('active-filter');
+
+        // Clear all active chips in this panel
+        panel.querySelectorAll('.asign-status-chip').forEach(c => c.classList.remove('active-filter'));
+
+        const pendingHeader = itemsEl.querySelector('.asign-jr-pending-header');
+        const pendingSep    = itemsEl.querySelector('.asign-jr-pending-sep');
+
+        if (wasActive) {
+          // Remove filter — show everything
+          itemsEl.querySelectorAll('.asign-jr-item').forEach(el => el.style.display = '');
+          if (pendingHeader) pendingHeader.style.display = '';
+          if (pendingSep)    pendingSep.style.display    = '';
+        } else {
+          // Apply filter
+          chip.classList.add('active-filter');
+          itemsEl.querySelectorAll('.asign-jr-item').forEach(el => {
+            el.style.display = el.dataset.status === status ? '' : 'none';
+          });
+          // Show/hide pending section header based on whether filtered status is pending
+          const isPending = PENDING_ST.has(status);
+          if (pendingHeader) pendingHeader.style.display = isPending ? '' : 'none';
+          if (pendingSep)    pendingSep.style.display    = isPending ? '' : 'none';
+        }
+      });
+    });
   },
 
   _buildDraftBar() {

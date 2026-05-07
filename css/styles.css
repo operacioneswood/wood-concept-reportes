@@ -1455,12 +1455,31 @@ body {
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
+  transition: box-shadow .15s, opacity .15s;
+}
+.asign-status-chip[data-status]:hover { opacity: .8; }
+.asign-status-chip.active-filter {
+  box-shadow: 0 0 0 2px currentColor;
+  opacity: 1 !important;
 }
 .asign-jr-item {
   padding: 10px 14px;
   border-bottom: 1px solid var(--divider);
 }
 .asign-jr-item:last-child { border-bottom: none; }
+.asign-jr-pending-header {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 14px 4px;
+  background: #fafafa;
+}
+.asign-jr-pending-sep {
+  border-top: 1px dashed var(--divider);
+  margin: 4px 14px 4px;
+}
 .asign-jr-item-line1 {
   display: flex;
   align-items: baseline;
