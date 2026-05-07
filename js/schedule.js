@@ -759,7 +759,7 @@ const Schedule = {
 
     const barStyle = ph => {
       const c = PC[ph.id] || PC[1];
-      if (ph.source === 'completed') return { bg: '#e5e7eb', bd: '1px solid #9ca3af', tx: '#6b7280', op: '0.65' };
+      if (ph.source === 'completed') return { bg: '#e5e7eb', bd: '1px solid #d1cdc7', tx: '#6b6560', op: '0.65' };
       if (ph.source === 'clickup')   return { bg: c.dark,   bd: `2px solid ${c.base}`, tx: '#fff',  op: '1'    };
       /* estimated */                return { bg: c.light,  bd: `1px dashed ${c.base}`, tx: c.text, op: '0.9'  };
     };
@@ -787,8 +787,8 @@ const Schedule = {
 
     // Today vertical line — positioned in inner-wrapper coords (includes LABEL_W).
     const todayLineX = dayToX(0); // = LABEL_W + 1 * PX
-    const todayLine  = `<div style="position:absolute;left:${todayLineX}px;top:0;bottom:0;width:2px;background:#ef4444;z-index:10;pointer-events:none">
-      <div style="position:absolute;top:2px;left:4px;font-size:9px;color:#ef4444;font-weight:700;white-space:nowrap">Hoy</div>
+    const todayLine  = `<div style="position:absolute;left:${todayLineX}px;top:0;bottom:0;width:2px;background:#c41c1c;z-index:10;pointer-events:none">
+      <div style="position:absolute;top:2px;left:4px;font-size:9px;color:#c41c1c;font-weight:700;white-space:nowrap">Hoy</div>
     </div>`;
 
     // ── Build HTML for each Sr+Jr pair ─────────────────────────
@@ -822,10 +822,10 @@ const Schedule = {
           else                                                         counts.done++;
         }
         const miniSegs = [
-          { n: counts.pending, bg: '#e5e7eb' },
+          { n: counts.pending, bg: '#e8e4df' },
           { n: counts.draw,    bg: '#93c5fd' },
           { n: counts.review,  bg: '#c4b5fd' },
-          { n: counts.wait,    bg: '#d1d5db' },
+          { n: counts.wait,    bg: '#d1cdc7' },
           { n: counts.corr,    bg: '#fcd34d' },
           { n: counts.done,    bg: '#6ee7b7' },
         ].filter(s => s.n > 0)
@@ -885,13 +885,13 @@ const Schedule = {
             innerHtml += `
               <div class="gantt-row" draggable="true"
                    data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${globalIdx}" data-pid="${pid}"
-                   style="display:none;min-height:40px;background:#fff">
-                <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:3;background:#fff;padding:5px 10px 5px 28px">
+                   style="display:none;min-height:40px;background:var(--card)">
+                <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:3;background:var(--card);padding:5px 10px 5px 28px">
                   <div style="font-size:12px;font-weight:500;line-height:1.3">${esc(item.name)}${jrBadge}</div>
                   <div style="font-size:10px;color:var(--muted)">${esc(nStr)} · Pendiente</div>
                 </div>
                 <div style="position:relative;flex:1;min-height:40px;display:flex;align-items:center;padding:0 12px">
-                  <span style="background:#f3f4f6;color:#6b7280;padding:3px 10px;border-radius:4px;font-size:11px;border:1px solid #e5e7eb;white-space:nowrap">Pendiente de inicio</span>
+                  <span style="background:var(--slate-bg);color:var(--slate);padding:3px 10px;border-radius:4px;font-size:11px;border:1px solid var(--slate-border);white-space:nowrap">Pendiente de inicio</span>
                 </div>
               </div>`;
             continue;
@@ -918,8 +918,8 @@ const Schedule = {
           innerHtml += `
             <div class="gantt-row" draggable="true"
                  data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${globalIdx}" data-pid="${pid}"
-                 style="display:none;min-height:40px;background:#fff">
-              <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:3;background:#fff;padding:5px 10px 5px 28px">
+                 style="display:none;min-height:40px;background:var(--card)">
+              <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:3;background:var(--card);padding:5px 10px 5px 28px">
                 <div style="font-size:12px;font-weight:500;line-height:1.3">${esc(item.name)}${jrBadge}</div>
                 <div class="gantt-item-meta">${esc(nStr)} · ${esc(item.currentPhase)}</div>
               </div>
@@ -957,8 +957,8 @@ const Schedule = {
       <div class="sched-legend">
         <span class="sched-legend-item" style="background:#1d4ed8;border:2px solid #3b82f6;color:#fff">📅 Fecha ClickUp</span>
         <span class="sched-legend-item" style="background:#dbeafe;border:1px dashed #3b82f6;color:#1e40af">~ Estimado</span>
-        <span class="sched-legend-item" style="background:#e5e7eb;border:1px solid #9ca3af;color:#6b7280">✓ Completado</span>
-        <span class="sched-legend-item" style="background:#f3f4f6;border:1px solid #e5e7eb;color:#6b7280">⏳ Pendiente</span>
+        <span class="sched-legend-item" style="background:#e5e7eb;border:1px solid #d1cdc7;color:#6b6560">✓ Completado</span>
+        <span class="sched-legend-item" style="background:#f3f4f6;border:1px solid #e5e7eb;color:#6b6560">⏳ Pendiente</span>
         <span style="font-size:11px;color:var(--faint);padding:3px 0">🏁 = fábrica estimada &nbsp;· Arrastra para reordenar</span>
       </div>
       ${pairsHTML}`;
@@ -994,14 +994,14 @@ const Schedule = {
 
   _renderLista(container, pairResults) {
     const BADGE = {
-      'Pendiente de inicio':     '#f3f4f6|#6b7280',
+      'Pendiente de inicio':     '#f3f4f6|#6b6560',
       'Jr dibujando':            '#dbeafe|#1e40af',
       'Sr dibujando':            '#dbeafe|#1e40af',
       'Sr revisa + envía':       '#ede9fe|#5b21b6',
       'En aprobación':           '#f3f4f6|#374151',
       'Jr correcciones':         '#fef3c7|#92400e',
       'Sr correcciones':         '#fef3c7|#92400e',
-      'Sr elabora OP + fábrica': '#d1fae5|#065f46',
+      'Sr elabora OP + fábrica': '#dcfce7|#166534',
     };
     // Shortened labels so they fit the narrow badge column
     const SHORT = {
@@ -1200,9 +1200,9 @@ const Schedule = {
       'en dibujo':                ['#dbeafe', '#1e40af'],
       'revision de constructivo': ['#ede9fe', '#5b21b6'],
       'enviado a aprobacion':     ['#f3f4f6', '#374151'],
-      'aprobado':                 ['#fef3c7', '#92400e'],
-      'proximos a entrar':        ['#f3f4f6', '#6b7280'],
-      'asignado':                 ['#f3f4f6', '#6b7280'],
+      'aprobado':                 ['#dcfce7', '#166534'],
+      'proximos a entrar':        ['#f3f4f6', '#6b6560'],
+      'asignado':                 ['#f3f4f6', '#6b6560'],
     };
 
     // ── Jr workload — sourced from _apiTasks for consistency with status chips ──
@@ -1460,7 +1460,7 @@ const Schedule = {
         const srId      = `sr${srIdx}`;
         const remaining = srRemaining(allTasks);
         const barWidth  = Math.min(100, remaining / 20 * 100);
-        const barColor  = remaining <= 8 ? '#d1fae5' : remaining <= 15 ? '#fef3c7' : '#fee2e2';
+        const barColor  = remaining <= 8 ? '#dcfce7' : remaining <= 15 ? '#fef3c7' : '#fee2e2';
         const color     = DESIGNER_COLORS[sr] || '#888';
         return `
           <div class="asign-sr-boardcard" data-sr="${esc(sr)}">
@@ -1482,11 +1482,11 @@ const Schedule = {
         const allTasks  = noOwnerProjects.flatMap(p => p.tasks);
         const remaining = srRemaining(allTasks);
         const barWidth  = Math.min(100, remaining / 20 * 100);
-        const barColor  = remaining <= 8 ? '#d1fae5' : remaining <= 15 ? '#fef3c7' : '#fee2e2';
+        const barColor  = remaining <= 8 ? '#dcfce7' : remaining <= 15 ? '#fef3c7' : '#fee2e2';
         return `
           <div class="asign-sr-boardcard" data-sr="">
             <div class="asign-sr-boardcard-hdr">
-              <span class="sched-pair-dot" style="background:#9ca3af"></span>
+              <span class="sched-pair-dot" style="background:#a09890"></span>
               <span class="asign-sr-boardcard-name">Sin asignar</span>
               <span class="asign-sr-boardcard-sigma" id="asign-sr-sigma-sr-none">Σ ${fmtNum(remaining)} pts</span>
             </div>
@@ -1937,7 +1937,7 @@ const Schedule = {
       .filter(c => c.assignName === jr).reduce((s, c) => s + (c.nivel || 0), 0);
     const total    = base + draft;
     const barPct   = Math.min(100, total / 20 * 100);
-    const barColor = total <= 8 ? '#d1fae5' : total <= 15 ? '#fef3c7' : '#fee2e2';
+    const barColor = total <= 8 ? '#dcfce7' : total <= 15 ? '#fef3c7' : '#fee2e2';
     const info     = this._loadInfoFn(total);
 
     const barEl   = document.getElementById(`asign-bar-${jrId}`);
@@ -1977,7 +1977,7 @@ const Schedule = {
       .filter(t => !this._asignDraft.has(t.taskId))
       .reduce((s, t) => s + (t.nivel || 0), 0);
     const barPct    = Math.min(100, remaining / 20 * 100);
-    const barColor  = remaining <= 8 ? '#d1fae5' : remaining <= 15 ? '#fef3c7' : '#fee2e2';
+    const barColor  = remaining <= 8 ? '#dcfce7' : remaining <= 15 ? '#fef3c7' : '#fee2e2';
     const srIdx     = this.SR_LIST.indexOf(sr);
     const srId      = srIdx >= 0 ? `sr${srIdx}` : 'sr-none';
     const barEl     = document.getElementById(`asign-sr-bar-${srId}`);
