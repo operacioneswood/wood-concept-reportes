@@ -252,13 +252,17 @@ const Schedule = {
       const parentSrs      = (parentInfo?.designers || []).filter(d => this.SR_LIST.includes(d));
       const parentInactive = parentInfo ? INACTIVE_PARENT.has(parentInfo.status) : false;
 
+      // If this subtask has no own assignees, inherit the parent task's designers so it
+      // shows up under the correct Sr/Jr in both Cronograma and Estado actual.
+      // (e.g. HARROUCHE subtasks that are "proximos a entrar" with no assignee assigned yet)
+      const effectiveDesigners = designers.length > 0
+        ? designers
+        : (parentInfo?.designers || []);
+
       // Push to _apiTasks when:
       //   a) parent project is in an active design status, OR
-      //   b) the task is already assigned to someone — an active subtask should
-      //      always appear in its designer's list even if the parent OP wrapper
-      //      is still in "asignado" / "cotizacion" (e.g. single-item project where
-      //      the parent task is assigned to the same Jr).
-      if (!parentInactive || designers.length > 0) {
+      //   b) the task (or its parent) is assigned to someone.
+      if (!parentInactive || effectiveDesigners.length > 0) {
         this._apiTasks.push({
           taskId:       t.id,
           name:         t.name || '',
@@ -269,12 +273,12 @@ const Schedule = {
           op:           opVal,
           status:       rawStatus,
           pending:      isPending,
-          allDesigners: designers,
+          allDesigners: effectiveDesigners,
         });
       }
 
-      // Only add to items (Cronograma) when at least one designer is known
-      if (!designers.length) continue;
+      // Only add to items (Cronograma) when at least one designer is known (own or inherited)
+      if (!effectiveDesigners.length) continue;
 
       const fechaInicio     = toDate(t.start_date);
       const finDibujo       = toDate(_cuFieldVal(t, fids.finDibujo));
@@ -282,7 +286,7 @@ const Schedule = {
       const aprobado        = toDate(_cuFieldVal(t, fids.aprobado));
       const envioFabrica    = toDate(_cuFieldVal(t, fids.envio));
 
-      for (const designer of designers) {
+      for (const designer of effectiveDesigners) {
         items.push({
           id:  `${t.name || ''}|${parent}`,
           name: t.name || '',
@@ -294,7 +298,7 @@ const Schedule = {
           corrections:     parseInt(corrRaw || '0') || 0,
           designer,
           taskId:          t.id,
-          allDesigners:    designers,
+          allDesigners:    effectiveDesigners,
           fechaInicio,
           finDibujo,
           envioAprobacion,
