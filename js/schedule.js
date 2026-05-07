@@ -1545,7 +1545,6 @@ const Schedule = {
           <div class="asign-jr-dropcard-hdr">
             <span class="sched-pair-dot" style="background:${color}"></span>
             <span class="asign-jr-name">${esc(jr)}</span>
-            <span class="asign-load-indicator ${info.cls}" id="asign-loaddot-${jrId}">${info.dot} ${info.label}</span>
             <span class="asign-jr-sigma" id="asign-sigma-${jrId}">Σ ${fmtNum(totalLoad)} pts</span>
           </div>
           <div class="asign-jr-loadbar-wrap">
@@ -1948,7 +1947,6 @@ const Schedule = {
     const dotEl   = document.getElementById(`asign-loaddot-${jrId}`);
     if (barEl)   { barEl.style.width = `${barPct}%`; barEl.style.background = barColor; }
     if (sigmaEl) sigmaEl.textContent = `Σ ${fmtNum(total)} pts`;
-    if (dotEl)   { dotEl.textContent = `${info.dot} ${info.label}`; dotEl.className = `asign-load-indicator ${info.cls}`; }
   },
 
   _updateBalance(container) {
