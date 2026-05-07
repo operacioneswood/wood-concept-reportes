@@ -244,7 +244,7 @@ const Schedule = {
       const nivel     = nivRaw !== '' ? (parseFloat(nivRaw) || null) : null;
       const corrRaw   = _cuFieldVal(t, fids.corrections);
       const opVal     = _cuFieldVal(t, fids.op) || '';
-      const parent    = t.parent ? (nameById.get(t.parent) || '') : (t.folder?.name || t.list?.name || '');
+      const parent    = t.parent ? (nameById.get(t.parent) || '') : (t.name || '');
       const isPending = rawStatus === 'proximos a entrar' || rawStatus === 'asignado';
 
       // Resolve parent task info for Asignación routing
