@@ -329,9 +329,30 @@ const Schedule = {
   },
 
   _itemsForPair(pair) {
-    return this._items.filter(item =>
-      item.designer === pair.sr || (pair.jr && item.designer === pair.jr)
+    // Collect every project where this Sr appears (allDesigners in API mode,
+    // or [designer] in CSV mode which has no allDesigners field).
+    const srProjects = new Set(
+      this._items
+        .filter(item => (item.allDesigners || [item.designer]).includes(pair.sr))
+        .map(item => item.project)
     );
+
+    // Return ONE entry per unique task for every Sr-managed project so that
+    // items done by any Jr (not just the paired one) appear in this Sr's
+    // Gantt section. Prefer the Sr's own entry when multiple designer-copies
+    // exist for the same task (API mode pushes one copy per designer).
+    const byKey  = new Map();
+    const getKey = item => item.taskId || item.id;
+    for (const item of this._items) {
+      if (!srProjects.has(item.project)) continue;
+      const k = getKey(item);
+      if (!byKey.has(k)) {
+        byKey.set(k, item);
+      } else if ((item.allDesigners || [item.designer]).includes(pair.sr)) {
+        byKey.set(k, item); // prefer the Sr's own copy
+      }
+    }
+    return [...byKey.values()];
   },
 
   _applyPriority(items, pairKey) {
@@ -875,10 +896,10 @@ const Schedule = {
           const globalIdx = timeline.indexOf(item);
           const nStr      = item.nivel !== null ? `N${item.nivel}` : '—';
 
-          // Jr badge — show first Jr's first name if any Jr is in allDesigners
+          // Jr badge — show Jr display name on the meta line (below item name)
           const jrOnItem = (item.allDesigners || []).find(d => this.JR_LIST.includes(d));
           const jrBadge  = jrOnItem
-            ? `<span class="gantt-jr-badge">${esc(jrOnItem.split(' ')[0])}</span>`
+            ? `<span class="gantt-jr-badge">${esc(jrOnItem)}</span>`
             : '';
 
           if (item.pending) {
@@ -888,8 +909,8 @@ const Schedule = {
                    data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${globalIdx}" data-pid="${pid}"
                    style="display:none;min-height:40px;background:var(--card)">
                 <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:3;background:var(--card);padding:5px 10px 5px 28px">
-                  <div style="font-size:12px;font-weight:500;line-height:1.3">${esc(item.name)}${jrBadge}</div>
-                  <div style="font-size:10px;color:var(--muted)">${esc(nStr)} · Pendiente</div>
+                  <div style="font-size:12px;font-weight:500;line-height:1.3">${esc(item.name)}</div>
+                  <div style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px;flex-wrap:wrap">${esc(nStr)} · Pendiente ${jrBadge}</div>
                 </div>
                 <div style="position:relative;flex:1;min-height:40px;display:flex;align-items:center;padding:0 12px">
                   <span style="background:var(--slate-bg);color:var(--slate);padding:3px 10px;border-radius:4px;font-size:11px;border:1px solid var(--slate-border);white-space:nowrap">Pendiente de inicio</span>
@@ -921,8 +942,8 @@ const Schedule = {
                  data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${globalIdx}" data-pid="${pid}"
                  style="display:none;min-height:40px;background:var(--card)">
               <div style="width:${LABEL_W}px;flex-shrink:0;position:sticky;left:0;z-index:3;background:var(--card);padding:5px 10px 5px 28px">
-                <div style="font-size:12px;font-weight:500;line-height:1.3">${esc(item.name)}${jrBadge}</div>
-                <div class="gantt-item-meta">${esc(nStr)} · ${esc(item.currentPhase)}</div>
+                <div style="font-size:12px;font-weight:500;line-height:1.3">${esc(item.name)}</div>
+                <div class="gantt-item-meta" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">${esc(nStr)} · ${esc(item.currentPhase)} ${jrBadge}</div>
               </div>
               <div style="position:relative;flex:1;min-height:40px;overflow:visible">
                 ${bars}
