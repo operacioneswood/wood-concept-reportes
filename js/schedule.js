@@ -1220,11 +1220,13 @@ const Schedule = {
       // Tasks explicitly assigned to this Jr (any status)
       const assignedTasks = this._apiTasks.filter(t => t.allDesigners.includes(jr));
 
-      // Pending tasks from the paired Sr's projects that have no Jr yet.
-      // These are "próximos a entrar" / "asignado" tasks that will land on this Jr.
+      // Tasks from the paired Sr's projects that have no Jr explicitly assigned.
+      // Includes both pending items ("proximos a entrar") AND active items with no
+      // own ClickUp assignee (hasOwnDesigners=false) — catches cases like PUERTAS
+      // PASILLO where Luis was removed from the task but should still be tracked.
       const upcomingTasks = pairedSr
         ? this._apiTasks.filter(t =>
-            t.pending &&
+            (t.pending || !t.hasOwnDesigners) &&
             !t.allDesigners.some(d => this.JR_LIST.includes(d)) &&
             (
               (t.parentSrs && t.parentSrs.includes(pairedSr)) ||
