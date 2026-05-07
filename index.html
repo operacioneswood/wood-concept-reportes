@@ -268,36 +268,21 @@
 
     <!-- ══════════════ SCREEN 4: COMPARE MONTHS ══════════════ -->
     <div id="screen-compare" class="screen">
-      <div class="compare-wrap">
+      <div class="cmp-wrap">
 
-        <div class="compare-header">
-          <h1>Comparar meses</h1>
-          <p>Selecciona 2 a 4 meses guardados para comparar lado a lado</p>
-        </div>
-
-        <div id="compare-no-data" class="dash-empty" style="display:none">
-          <div class="empty-icon">📅</div>
-          <p>Necesitas al menos 2 reportes guardados para comparar.</p>
-        </div>
-
-        <div id="compare-picker" class="compare-picker"></div>
-
-        <div id="compare-content" style="display:none">
-          <div class="dash-tabs">
-            <button class="dash-tab active" data-ctab="radar">🕸 Radar por diseñador</button>
-            <button class="dash-tab" data-ctab="bars">📊 Barras comparativas</button>
-            <button class="dash-tab" data-ctab="delta">Δ Tabla de deltas</button>
-          </div>
-          <div id="ctab-radar" class="compare-tab-panel">
-            <div id="radar-grid" class="radar-grid"></div>
-          </div>
-          <div id="ctab-bars" class="compare-tab-panel" style="display:none">
-            <div class="chart-wrap"><canvas id="chart-compare-bars"></canvas></div>
-          </div>
-          <div id="ctab-delta" class="compare-tab-panel" style="display:none">
-            <div id="delta-wrap"></div>
+        <div class="cmp-header-row">
+          <h1 class="cmp-title">Comparar meses</h1>
+          <div class="cmp-view-tabs">
+            <button class="cmp-tab active" data-cview="diseñador">👤 Por diseñador</button>
+            <button class="cmp-tab" data-cview="equipo">👥 Equipo general</button>
+            <button class="cmp-tab" data-cview="velocidad">⏱ Velocidad</button>
+            <button class="cmp-tab" data-cview="proyeccion">📈 Proyección</button>
           </div>
         </div>
+
+        <div id="cmp-picker-row" class="cmp-picker-row"></div>
+        <div id="cmp-no-data"></div>
+        <div id="cmp-body"></div>
 
       </div>
     </div>
