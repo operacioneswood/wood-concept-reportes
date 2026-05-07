@@ -273,7 +273,8 @@ const Schedule = {
           op:           opVal,
           status:       rawStatus,
           pending:      isPending,
-          allDesigners: effectiveDesigners,
+          allDesigners:     effectiveDesigners,
+          hasOwnDesigners:  designers.length > 0,
         });
       }
 
@@ -1411,7 +1412,7 @@ const Schedule = {
       const jrBadge = isDraft
         ? `<span class="asign-draft-jr-badge">→ ${esc(draft.assignName)}</span>` : '';
       // +Sr quick-assign: only for items with NO assignee at all (not already in draft)
-      const srBtn = (!isDraft && sr && task.allDesigners.length === 0)
+      const srBtn = (!isDraft && sr && !task.hasOwnDesigners)
         ? `<button class="asign-quick-sr-btn" data-task-id="${esc(task.taskId)}" data-sr="${esc(sr)}" title="Asignar a ${esc(sr)}">+ Sr</button>`
         : '';
       return `
@@ -2044,7 +2045,7 @@ const Schedule = {
       if (isSrAssign) {
         const task = this._apiTasks.find(t => t.taskId === taskId);
         const meta = srcItem.querySelector('.asign-drag-meta');
-        if (task && task.allDesigners.length === 0 && assignName && meta
+        if (task && !task.hasOwnDesigners && assignName && meta
             && !meta.querySelector('.asign-quick-sr-btn')) {
           const btn = document.createElement('button');
           btn.className        = 'asign-quick-sr-btn';
