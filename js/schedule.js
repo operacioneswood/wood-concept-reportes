@@ -1570,7 +1570,7 @@ const Schedule = {
     const balMax = Math.max(...balLoads.map(l => l.load));
     const balRatio = balMin > 0 ? balMax / balMin : 0;
     const balChips = balLoads.map(l =>
-      `<span class="asign-balance-chip">${loadInfo(l.load).dot} ${esc(l.jr)} <b>${fmtNum(l.load)}</b></span>`
+      `<span class="asign-balance-chip">${esc(l.jr)} <b>${fmtNum(l.load)}</b></span>`
     ).join('');
     const balWarn = balRatio > 1.5
       ? `<span class="asign-balance-warn">⚠ ${esc(balLoads.find(l=>l.load===balMax)?.jr||'')} tiene ${fmtNum(balRatio)}× la carga del más libre — considera redistribuir</span>`
@@ -1965,7 +1965,7 @@ const Schedule = {
     const balMax   = Math.max(...balLoads.map(l => l.load));
     const balRatio = balMin > 0 ? balMax / balMin : 0;
     const balChips = balLoads.map(l =>
-      `<span class="asign-balance-chip">${this._loadInfoFn(l.load).dot} ${esc(l.jr)} <b>${fmtNum(l.load)}</b></span>`
+      `<span class="asign-balance-chip">${esc(l.jr)} <b>${fmtNum(l.load)}</b></span>`
     ).join('');
     const balWarn = balRatio > 1.5
       ? `<span class="asign-balance-warn">⚠ ${esc(balLoads.find(l => l.load === balMax)?.jr || '')} tiene ${fmtNum(balRatio)}× la carga del más libre — considera redistribuir</span>`
