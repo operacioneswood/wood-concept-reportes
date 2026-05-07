@@ -575,7 +575,7 @@ const Schedule = {
       <div class="sched-toolbar">
         <div class="sched-view-tabs">
           <button class="sched-tab ${this._view === 'gantt'          ? 'active' : ''}" data-view="gantt">📊 Gantt</button>
-          <button class="sched-tab ${this._view === 'lista'          ? 'active' : ''}" data-view="lista">📋 Lista por par</button>
+          <button class="sched-tab ${this._view === 'lista'          ? 'active' : ''}" data-view="lista">📋 Resumen</button>
           <button class="sched-tab ${this._view === 'disponibilidad' ? 'active' : ''}" data-view="disponibilidad">⏱ Disponibilidad</button>
         </div>
         <button class="btn-secondary" id="sched-cfg-btn">⚙ Configuración</button>
@@ -990,18 +990,25 @@ const Schedule = {
     this._bindDrag(container, pairResults);
   },
 
-  // ── View 2: Lista por par ──────────────────────────────────
+  // ── View 2: Resumen ────────────────────────────────────────
 
   _renderLista(container, pairResults) {
     const BADGE = {
-      'Pendiente de inicio':       '#f3f4f6|#6b7280',
-      'Jr dibujando':              '#dbeafe|#1e40af',
-      'Sr dibujando':              '#dbeafe|#1e40af',
-      'Sr revisa + envía':         '#ede9fe|#5b21b6',
-      'En aprobación':             '#f3f4f6|#374151',
-      'Jr correcciones':           '#fef3c7|#92400e',
-      'Sr correcciones':           '#fef3c7|#92400e',
-      'Sr elabora OP + fábrica':   '#d1fae5|#065f46',
+      'Pendiente de inicio':     '#f3f4f6|#6b7280',
+      'Jr dibujando':            '#dbeafe|#1e40af',
+      'Sr dibujando':            '#dbeafe|#1e40af',
+      'Sr revisa + envía':       '#ede9fe|#5b21b6',
+      'En aprobación':           '#f3f4f6|#374151',
+      'Jr correcciones':         '#fef3c7|#92400e',
+      'Sr correcciones':         '#fef3c7|#92400e',
+      'Sr elabora OP + fábrica': '#d1fae5|#065f46',
+    };
+    // Shortened labels so they fit the narrow badge column
+    const SHORT = {
+      'Pendiente de inicio':     'Pendiente',
+      'Sr revisa + envía':       'Sr revisa',
+      'En aprobación':           'Aprobación',
+      'Sr elabora OP + fábrica': 'OP fábrica',
     };
 
     const active = pairResults.filter(p => p.items.length > 0);
@@ -1011,61 +1018,71 @@ const Schedule = {
     }
 
     const today = new Date();
-    const html  = active.map(({ pair, pairKey, timeline }) => {
+    today.setHours(0, 0, 0, 0);
+
+    const cols = active.map(({ pair, pairKey, timeline }, ci) => {
       const title = pair.jr ? `${pair.sr} + ${pair.jr}` : pair.sr;
+      const color = DESIGNER_COLORS[pair.sr] || '#888';
 
-      const rows = timeline.map((item, idx) => {
-        const nStr = item.nivel !== null ? `Nivel ${item.nivel}` : 'Sin nivel';
+      // Active first, pending at bottom
+      const activeItems  = timeline.filter(i => !i.pending);
+      const pendingItems = timeline.filter(i => i.pending);
+
+      const renderRow = item => {
         const [bg, fg] = (BADGE[item.currentPhase] || '#f3f4f6|#374151').split('|');
+        const label    = SHORT[item.currentPhase] || item.currentPhase;
+        const tlIdx    = timeline.indexOf(item);
 
-        if (item.pending) {
-          return `<div class="sched-list-row" draggable="true" data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${idx}">
-            <div class="sched-list-num">${idx + 1}</div>
-            <div>
-              <div class="sched-list-name">${esc(item.name)}</div>
-              <div class="sched-list-meta">${esc(item.project || '—')} · ${nStr}</div>
-            </div>
-            <div><span class="sched-phase-badge" style="background:${bg};color:${fg}">${esc(item.currentPhase)}</span></div>
-            <div><span style="color:var(--muted);font-size:12px">—</span></div>
-          </div>`;
+        let fabCell = '<span class="lista-fab-none">—</span>';
+        if (item.fabricaDate) {
+          const d      = item.fabricaDate;
+          const str    = d.toLocaleDateString('es', { day: '2-digit', month: 'short' });
+          const isLate = d < today;
+          fabCell = `<span class="lista-fab-date${isLate ? ' lista-fab-late' : ''}">${str}</span>`;
         }
 
-        const fabDate  = item.fabricaDate;
-        const fabStr   = fabDate.toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit' });
-        const days     = Math.round((fabDate - today) / 86400000);
-        const daysHTML = days < 0
-          ? `<span style="color:var(--below-text)">Atrasado ${Math.abs(days)}d</span>`
-          : `${days} día${days !== 1 ? 's' : ''}`;
-        const cStr = item.corrections > 0 ? ` · ${item.corrections} corr.` : '';
+        return `
+          <div class="lista-item-row" draggable="true"
+               data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${tlIdx}">
+            <div class="lista-item-cell">
+              <div class="lista-item-name" title="${esc(item.name)}">${esc(item.name)}</div>
+              <div class="lista-item-proj" title="${esc(item.project || '')}">${esc(item.project || '—')}</div>
+            </div>
+            <div class="lista-badge-cell">
+              <span class="lista-phase-badge" style="background:${bg};color:${fg}"
+                    title="${esc(item.currentPhase)}">${esc(label)}</span>
+            </div>
+            <div class="lista-date-cell">${fabCell}</div>
+          </div>`;
+      };
 
-        return `<div class="sched-list-row" draggable="true" data-id="${esc(item.id)}" data-pk="${esc(pairKey)}" data-idx="${idx}">
-          <div class="sched-list-num">${idx + 1}</div>
-          <div>
-            <div class="sched-list-name">${esc(item.name)}</div>
-            <div class="sched-list-meta">${esc(item.project || '—')} · ${nStr}${esc(cStr)}</div>
-          </div>
-          <div><span class="sched-phase-badge" style="background:${bg};color:${fg}">${esc(item.currentPhase)}</span></div>
-          <div>
-            <div class="sched-fab-date">🏁 ${fabStr}</div>
-            <div class="sched-fab-days">${daysHTML}</div>
-          </div>
-        </div>`;
-      }).join('');
+      const activeRows  = activeItems.map(renderRow).join('');
+      const pendingRows = pendingItems.length === 0 ? '' : `
+        <div class="lista-pending-header">🕐 Próximos a iniciar</div>
+        ${pendingItems.map(renderRow).join('')}`;
 
-      return `<div class="sched-pair-block">
-        <div class="sched-pair-title">
-          <span class="sched-pair-dot" style="background:${DESIGNER_COLORS[pair.sr] || '#888'}"></span>
-          ${esc(title)}
-          <span class="sched-pair-count">${timeline.length} ítem${timeline.length !== 1 ? 's' : ''}</span>
+      const emptyMsg = timeline.length === 0
+        ? '<p class="asign-empty-msg">Sin ítems</p>'
+        : '';
+
+      const divider = ci > 0 ? '<div class="lista-panel-divider"></div>' : '';
+
+      return `${divider}<div class="lista-panel-col" data-pk="${esc(pairKey)}">
+        <div class="lista-col-header">
+          <span class="sched-pair-dot" style="background:${color}"></span>
+          <span class="lista-col-title" title="${esc(title)}">${esc(title)}</span>
+          <span class="lista-col-count">${timeline.length} ítem${timeline.length !== 1 ? 's' : ''}</span>
         </div>
-        <div class="sched-list-header">
-          <div>#</div><div>Ítem</div><div>Estado actual</div><div>Fecha fábrica</div>
+        <div class="lista-col-subheader">
+          <div>Ítem</div><div>Estado</div><div>Fábrica</div>
         </div>
-        ${rows}
+        <div class="lista-col-items">
+          ${activeRows}${pendingRows}${emptyMsg}
+        </div>
       </div>`;
-    }).join('');
+    });
 
-    container.innerHTML = html;
+    container.innerHTML = `<div class="lista-panel">${cols.join('')}</div>`;
     this._bindDrag(container, pairResults);
   },
 
