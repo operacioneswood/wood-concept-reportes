@@ -341,14 +341,19 @@ const Schedule = {
     // items done by any Jr (not just the paired one) appear in this Sr's
     // Gantt section. Prefer the Sr's own entry when multiple designer-copies
     // exist for the same task (API mode pushes one copy per designer).
+    // EXCLUDE items that are explicitly assigned to a DIFFERENT Sr — those
+    // belong to that other Sr's section, not this one.
     const byKey  = new Map();
     const getKey = item => item.taskId || item.id;
     for (const item of this._items) {
       if (!srProjects.has(item.project)) continue;
+      const designers = item.allDesigners || [item.designer];
+      // Skip if another Sr (not this pair's Sr) is the one assigned to this item
+      if (designers.some(d => this.SR_LIST.includes(d) && d !== pair.sr)) continue;
       const k = getKey(item);
       if (!byKey.has(k)) {
         byKey.set(k, item);
-      } else if ((item.allDesigners || [item.designer]).includes(pair.sr)) {
+      } else if (designers.includes(pair.sr)) {
         byKey.set(k, item); // prefer the Sr's own copy
       }
     }
@@ -493,7 +498,7 @@ const Schedule = {
       'proximos a entrar':        'Pendiente de inicio',
       'asignado':                 'Pendiente de inicio',
       'en dibujo':                srOnly ? 'Sr dibujando'    : 'Jr dibujando',
-      'revision de constructivo': 'Sr revisa + envía',
+      'revision de constructivo': 'En revisión',
       'enviado a aprobacion':     'En aprobación',
       'aprobado':                 srOnly ? 'Sr correcciones' : 'Jr correcciones',
     };
@@ -838,7 +843,7 @@ const Schedule = {
           const ph = item.currentPhase;
           if      (ph === 'Pendiente de inicio')                       counts.pending++;
           else if (ph.includes('dibujando'))                           counts.draw++;
-          else if (ph.includes('revisa') || ph.includes('envía'))      counts.review++;
+          else if (ph.includes('revisa') || ph.includes('revisión') || ph.includes('envía'))  counts.review++;
           else if (ph.includes('aprobaci'))                            counts.wait++;
           else if (ph.includes('correcci'))                            counts.corr++;
           else                                                         counts.done++;
@@ -1019,6 +1024,7 @@ const Schedule = {
       'Pendiente de inicio':     '#f3f4f6|#6b6560',
       'Jr dibujando':            '#dbeafe|#1e40af',
       'Sr dibujando':            '#dbeafe|#1e40af',
+      'En revisión':             '#ede9fe|#5b21b6',
       'Sr revisa + envía':       '#ede9fe|#5b21b6',
       'En aprobación':           '#f3f4f6|#374151',
       'Jr correcciones':         '#fef3c7|#92400e',
@@ -1028,7 +1034,7 @@ const Schedule = {
     // Shortened labels so they fit the narrow badge column
     const SHORT = {
       'Pendiente de inicio':     'Pendiente',
-      'Sr revisa + envía':       'Sr revisa',
+      'En revisión':             'Revisión',
       'En aprobación':           'Aprobación',
       'Sr elabora OP + fábrica': 'OP fábrica',
     };
@@ -1046,9 +1052,16 @@ const Schedule = {
       const title = pair.jr ? `${pair.sr} + ${pair.jr}` : pair.sr;
       const color = DESIGNER_COLORS[pair.sr] || '#888';
 
+      // Resumen shows only items where the Sr is the actual assigned designer.
+      // Items done by a Jr or by a different Sr are excluded (Jr items are visible
+      // in the Asignación tab; other-Sr items appear in their own section).
+      const srTimeline = timeline.filter(item =>
+        (item.allDesigners || [item.designer]).includes(pair.sr)
+      );
+
       // Active first, pending at bottom
-      const activeItems  = timeline.filter(i => !i.pending);
-      const pendingItems = timeline.filter(i => i.pending);
+      const activeItems  = srTimeline.filter(i => !i.pending);
+      const pendingItems = srTimeline.filter(i => i.pending);
 
       const renderRow = item => {
         const [bg, fg] = (BADGE[item.currentPhase] || '#f3f4f6|#374151').split('|');
@@ -1083,7 +1096,7 @@ const Schedule = {
         <div class="lista-pending-header">🕐 Próximos a iniciar</div>
         ${pendingItems.map(renderRow).join('')}`;
 
-      const emptyMsg = timeline.length === 0
+      const emptyMsg = srTimeline.length === 0
         ? '<p class="asign-empty-msg">Sin ítems</p>'
         : '';
 
@@ -1093,7 +1106,7 @@ const Schedule = {
         <div class="lista-col-header">
           <span class="sched-pair-dot" style="background:${color}"></span>
           <span class="lista-col-title" title="${esc(title)}">${esc(title)}</span>
-          <span class="lista-col-count">${timeline.length} ítem${timeline.length !== 1 ? 's' : ''}</span>
+          <span class="lista-col-count">${srTimeline.length} ítem${srTimeline.length !== 1 ? 's' : ''}</span>
         </div>
         <div class="lista-col-subheader">
           <div>Ítem</div><div>Estado</div><div>Fábrica</div>
