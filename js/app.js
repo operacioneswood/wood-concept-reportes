@@ -386,7 +386,7 @@ const App = {
 
   // ── Generate report ───────────────────────────────────────
 
-  _generate() {
+  async _generate() {
     const mode  = this._detectMode();
     const month = parseInt(document.getElementById('sel-month')?.value || this._month, 10);
     const year  = parseInt(document.getElementById('inp-year')?.value  || this._year,  10);
@@ -403,8 +403,11 @@ const App = {
           cuTasks = parseCUCSV(this._cuRows);
         }
       }
-      const regEntries = (mode !== 'A' && this._regRows) ? parseRegCSV(this._regRows) : [];
-      const report     = buildReport(mode, cuTasks, regEntries, month, year);
+      const regEntries    = (mode !== 'A' && this._regRows) ? parseRegCSV(this._regRows) : [];
+      // Load all saved snapshots so the scoring engine can determine which
+      // phase each item previously reached (incremental scoring model).
+      const allSavedMonths = await Storage.loadAll();
+      const report         = buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths);
 
       Report.render(report, mode, this._cuFile, this._regFile);
 

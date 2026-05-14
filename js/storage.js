@@ -194,21 +194,29 @@ function reportToStorage(report, mode) {
  * Flatten a single item from the in-memory format to the stored format.
  *
  * Stored item shape:
- * { op, name, project, nivel, pts, date, src, fromReg, fromRegOnly, unconfirmed }
+ * { op, name, project, nivel, pts, pct, phase, prevPhase, prevMonthLabel,
+ *   date, src, fromReg, fromRegOnly, unconfirmed, corrections }
+ *
+ * `phase` ('dibujo'|'aprobado'|'produccion') is required so future months
+ * can determine the highest phase previously reached for this OP.
  */
 function itemToStorage(item) {
   return {
-    op:          item.op          || '',
-    name:        item.name        || '',
-    project:     item.parent      || '',
-    nivel:       item.level       != null ? item.level : null,
-    pts:         item.score       || 0,
-    date:        item.date        || null,
-    src:         item.fromRegOnly ? 'excel' : 'clickup',
-    fromReg:     item.fromReg     || false,
-    fromRegOnly: item.fromRegOnly || false,
-    unconfirmed: item.unconfirmed || false,
-    corrections: item.corrections || 0,
+    op:            item.op             || '',
+    name:          item.name           || '',
+    project:       item.parent         || '',
+    nivel:         item.level          != null ? item.level : null,
+    pts:           item.score          || 0,
+    pct:           item.pct            || 0,
+    phase:         item.phase          || '',   // 'dibujo' | 'aprobado' | 'produccion'
+    prevPhase:     item.prevPhase      || null,
+    prevMonthLabel:item.prevMonthLabel || null,
+    date:          item.date           || null,
+    src:           item.fromRegOnly    ? 'excel' : 'clickup',
+    fromReg:       item.fromReg        || false,
+    fromRegOnly:   item.fromRegOnly    || false,
+    unconfirmed:   item.unconfirmed    || false,
+    corrections:   item.corrections    || 0,
   };
 }
 
@@ -311,17 +319,21 @@ function storedToRender(stored) {
 /** Convert a stored item back to the shape report.js expects. */
 function storedItemToRender(item) {
   return {
-    name:        item.name        || '',
-    parent:      item.project     || '',
-    op:          item.op          || '',
-    level:       item.nivel       != null ? item.nivel : null,
-    score:       item.pts         || 0,
-    date:        item.date        || null,
-    hasLevel:    item.nivel       != null,
-    fromReg:     item.fromReg     || false,
-    fromRegOnly: item.fromRegOnly || false,
-    unconfirmed: item.unconfirmed || false,
-    corrections: item.corrections || 0,
+    name:          item.name           || '',
+    parent:        item.project        || '',
+    op:            item.op             || '',
+    level:         item.nivel          != null ? item.nivel : null,
+    score:         item.pts            || 0,
+    pct:           item.pct            || 0,
+    phase:         item.phase          || '',
+    prevPhase:     item.prevPhase      || null,
+    prevMonthLabel:item.prevMonthLabel || null,
+    date:          item.date           || null,
+    hasLevel:      item.nivel          != null,
+    fromReg:       item.fromReg        || false,
+    fromRegOnly:   item.fromRegOnly    || false,
+    unconfirmed:   item.unconfirmed    || false,
+    corrections:   item.corrections    || 0,
   };
 }
 

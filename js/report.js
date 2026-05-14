@@ -81,9 +81,9 @@ const Report = {
     const cards = [
       // ── Totals ───────────────────────────────────────────
       { l: 'Puntos totales',        v: fmtNum(mt.tPts),               s: `${r.activeCount} diseñadores activos`, x: noteA + noteC },
-      { l: 'Puntos dibujo',         v: fmtNum(mt.tDraw || 0),         s: 'Planos de dibujo (×1.0)',    x: '' },
-      { l: 'Puntos aprobados',      v: fmtNum(mt.tApv  || 0),         s: 'Planos aprobados (×1.25)',   x: '' },
-      { l: 'Puntos producción',     v: fmtNum(mt.tPrd  || 0),         s: 'Planos de producción (×1.5)', x: '' },
+      { l: 'Puntos dibujo',         v: fmtNum(mt.tDraw || 0),         s: 'Dibujo de aprobación (50%)',   x: '' },
+      { l: 'Puntos aprobados',      v: fmtNum(mt.tApv  || 0),         s: 'Aprobado por cliente (60%)',   x: '' },
+      { l: 'Puntos producción',     v: fmtNum(mt.tPrd  || 0),         s: 'Enviado a fábrica (100%)',     x: '' },
       // ── General ──────────────────────────────────────────
       { type: 'header', label: 'General' },
       { l: 'Ítems trabajados',      v: String(mt.uniqueItems || 0),   s: 'Únicos este mes',            x: '' },
@@ -501,14 +501,21 @@ const Report = {
 
   _renderFooter() {
     el('report-footer').innerHTML = `
-      <strong>Leyenda de puntuación</strong><br>
-      <span style="color:var(--aprob-text)">Dibujo</span> = nivel × 1.0
+      <strong>Leyenda de puntuación — sistema de fases acumulativas</strong><br>
+      Cada ítem tiene un valor base = <em>nivel</em>. Solo se puntúa el avance incremental alcanzado en el mes.
+      <br>
+      <span style="color:var(--aprob-text)">Dibujo</span> = nivel × 50%
       &nbsp;·&nbsp;
-      <span style="color:var(--apv-text)">Aprobado</span> = nivel × 1.25
+      <span style="color:var(--apv-text)">Aprobado</span> = nivel × 60% acumulado
       &nbsp;·&nbsp;
-      <span style="color:var(--prod-text)">Producción</span> = nivel × 1.5
-      &nbsp;·&nbsp; Cada ítem aparece una sola vez al estado más avanzado del mes
+      <span style="color:var(--prod-text)">Producción</span> = nivel × 100% acumulado
+      <br>
+      <span style="font-size:11.5px;color:var(--muted)">
+        Ejemplo: ítem N4 que pasó de Dibujo (50%) a Producción (100%) → puntúa el 50% restante = 2 pts.
+        Si llegó a Producción sin fases previas guardadas → puntúa el 100% = 4 pts.
+      </span>
       <div class="legend-row">
+        <div class="legend-item"><span class="item-prev-phase" style="font-size:11px">desde Aprobado · Abril 2026</span> Ítem que continúa desde un mes anterior</div>
         <div class="legend-item"><span class="mark-fallback" style="font-size:13px">†</span> Nivel tomado del Registro de Fábrica — actualizar en ClickUp</div>
         <div class="legend-item"><span class="mark-added"    style="font-size:13px">⊕</span> Ítem añadido desde Registro, no encontrado en ClickUp</div>
         <div class="legend-item"><span class="mark-warn"     style="font-size:13px">⚠</span> Ítem en ClickUp no confirmado por Registro</div>
@@ -566,9 +573,21 @@ function itemRowHTML(item) {
   if (item.fromRegOnly) markers.push('<span class="mark-added" title="Añadido desde Registro de Fábrica">⊕</span>');
   if (item.unconfirmed) markers.push('<span class="mark-warn"  title="No confirmado por Registro de Fábrica">⚠</span>');
 
-  const scoreHTML = item.hasLevel
-    ? fmtNum(item.score) + (item.fromReg ? '&thinsp;<span class="mark-fallback">†</span>' : '')
-    : '—&ensp;<span style="color:var(--faint);font-size:11px">(sin nivel)</span>';
+  // Points display — show incremental percentage used this month
+  let scoreHTML;
+  if (!item.hasLevel) {
+    scoreHTML = '—&ensp;<span style="color:var(--faint);font-size:11px">(sin nivel)</span>';
+  } else {
+    const pctLbl = item.pct ? `<span style="color:var(--faint);font-size:10px;margin-left:3px">(${Math.round(item.pct * 100)}%)</span>` : '';
+    const regMark = item.fromReg ? '&thinsp;<span class="mark-fallback">†</span>' : '';
+    scoreHTML = fmtNum(item.score) + regMark + pctLbl;
+  }
+
+  // "Desde [phase] · [month]" annotation when item continues from a previous month
+  const PHASE_LBL = { dibujo: 'Dibujo', aprobado: 'Aprobado', produccion: 'Producción' };
+  const prevAnnotation = (item.prevPhase && item.prevMonthLabel)
+    ? `<span class="item-prev-phase">desde ${PHASE_LBL[item.prevPhase] || item.prevPhase} · ${esc(item.prevMonthLabel)}</span>`
+    : '';
 
   const metaParts = [];
   if (item.op)   metaParts.push(esc(item.op));
@@ -579,6 +598,7 @@ function itemRowHTML(item) {
     <div class="item-info">
       <div class="item-name${item.hasLevel ? '' : ' no-level'}">${markers.join('')}${esc(item.name)}</div>
       ${item.parent ? `<div class="item-project">${esc(item.parent)}</div>` : ''}
+      ${prevAnnotation}
       ${metaParts.length ? `<div class="item-meta">${metaParts.join(' · ')}</div>` : ''}
     </div>
     <div class="item-score${item.hasLevel ? '' : ' no-level'}">${scoreHTML}</div>

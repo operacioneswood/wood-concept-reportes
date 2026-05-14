@@ -845,6 +845,7 @@ body {
 .item-name.no-level { color: var(--faint); }
 .item-project { font-size: 11px; color: var(--faint); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item-meta { font-size: 10.5px; color: var(--faint); font-family: 'Courier New', monospace; margin-top: 1px; }
+.item-prev-phase { display: block; font-size: 10.5px; color: var(--faint); font-style: italic; margin-top: 1px; }
 .item-score { font-size: 12.5px; font-weight: 500; color: var(--muted); white-space: nowrap; flex-shrink: 0; padding-top: 1px; }
 .item-score.no-level { color: var(--faint); font-weight: 400; }
 
