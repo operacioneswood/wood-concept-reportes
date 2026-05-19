@@ -1372,12 +1372,19 @@ const Schedule = {
         ? `<div class="asign-jr-summary">${summaryChips}</div>`
         : '';
 
+      const projTagsHtml1 = this._jrProjectTagsHtml(load.items, []);
+
       return `
         <div class="asign-jr-panel-col" data-jr="${esc(jr)}">
           <div class="asign-jr-header">
-            <span class="sched-pair-dot" style="background:${color}"></span>
-            <span class="asign-jr-name">${esc(jr)}</span>
-            <span class="asign-jr-stats">${fmtNum(load.niveles)} niv. · ${load.items.length} ítem${load.items.length !== 1 ? 's' : ''}</span>
+            <div class="asign-jr-header-top">
+              <span class="sched-pair-dot" style="background:${color}"></span>
+              <span class="asign-jr-name">${esc(jr)}</span>
+              <span class="asign-jr-role-badge">Jr</span>
+              <span class="asign-jr-stats">${load.items.length} ítem${load.items.length !== 1 ? 's' : ''} · Σ nivel ${fmtNum(load.niveles)}</span>
+              <button class="asign-jr-toggle" title="Colapsar / Expandir">▼</button>
+            </div>
+            <div class="jr-project-tags-row">${projTagsHtml1}</div>
           </div>
           <div class="asign-jr-items">${itemRows}</div>
           ${summaryRow}
@@ -1574,12 +1581,23 @@ const Schedule = {
       // Always render container so _updateBoardChips can find it by ID
       const boardChips = `<div class="asign-jr-board-chips" id="asign-jr-chips-${jrId}">${boardChipsHtml}</div>`;
 
+      const draftTaskItems2 = Array.from(this._asignDraft.values())
+        .filter(c => c.assignName === jr)
+        .map(c => this._apiTasks.find(t => t.taskId === c.taskId))
+        .filter(Boolean);
+      const projTagsHtml2 = this._jrProjectTagsHtml(jrLoad[jr].items, draftTaskItems2);
+      const totalCount2   = jrLoad[jr].items.length + draftTaskItems2.length;
+
       return `
         <div class="asign-jr-dropcard" data-jr="${esc(jr)}">
           <div class="asign-jr-dropcard-hdr">
-            <span class="sched-pair-dot" style="background:${color}"></span>
-            <span class="asign-jr-name">${esc(jr)}</span>
-            <span class="asign-jr-sigma" id="asign-sigma-${jrId}">Σ ${fmtNum(totalLoad)} pts</span>
+            <div class="asign-jr-header-top">
+              <span class="sched-pair-dot" style="background:${color}"></span>
+              <span class="asign-jr-name">${esc(jr)}</span>
+              <span class="asign-jr-role-badge">Jr</span>
+              <span class="asign-jr-sigma" id="asign-sigma-${jrId}">${totalCount2} ítem${totalCount2 !== 1 ? 's' : ''} · Σ ${fmtNum(totalLoad)} pts</span>
+            </div>
+            <div class="jr-project-tags-row" id="asign-jr-tags-${jrId}">${projTagsHtml2}</div>
           </div>
           <div class="asign-jr-loadbar-wrap">
             <div class="asign-jr-loadbar" id="asign-bar-${jrId}"
@@ -1648,6 +1666,24 @@ const Schedule = {
     this._bindBoard(container);
     this._bindDraftBar(container, document.getElementById('asign-draft-bar'));
     this._bindChipFilter(container);
+    this._bindJrToggle(container);
+  },
+
+  _bindJrToggle(container) {
+    container.querySelectorAll('.asign-jr-toggle').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const col   = btn.closest('.asign-jr-panel-col');
+        if (!col) return;
+        const items = col.querySelector('.asign-jr-items');
+        const summ  = col.querySelector('.asign-jr-summary');
+        if (!items) return;
+        const isOpen = items.style.display !== 'none';
+        items.style.display = isOpen ? 'none' : '';
+        if (summ) summ.style.display = isOpen ? 'none' : '';
+        btn.textContent = isOpen ? '▶' : '▼';
+      });
+    });
   },
 
   _bindChipFilter(container) {
@@ -1967,20 +2003,50 @@ const Schedule = {
   _updateJrBar(jr, container) {
     const jrIdx = this.JR_LIST.indexOf(jr);
     if (jrIdx < 0 || !this._jrLoad || !this._loadInfoFn) return;
-    const jrId  = `jr${jrIdx}`;
-    const base  = this._jrLoad[jr]?.niveles || 0;
-    const draft = Array.from(this._asignDraft.values())
-      .filter(c => c.assignName === jr).reduce((s, c) => s + (c.nivel || 0), 0);
+    const jrId     = `jr${jrIdx}`;
+    const base     = this._jrLoad[jr]?.niveles || 0;
+    const draftArr = Array.from(this._asignDraft.values()).filter(c => c.assignName === jr);
+    const draft    = draftArr.reduce((s, c) => s + (c.nivel || 0), 0);
     const total    = base + draft;
     const barPct   = Math.min(100, total / 20 * 100);
     const barColor = total <= 8 ? '#dcfce7' : total <= 15 ? '#fef3c7' : '#fee2e2';
-    const info     = this._loadInfoFn(total);
+
+    const existingCount = this._jrLoad[jr]?.items?.length || 0;
+    const totalCount    = existingCount + draftArr.length;
 
     const barEl   = document.getElementById(`asign-bar-${jrId}`);
     const sigmaEl = document.getElementById(`asign-sigma-${jrId}`);
-    const dotEl   = document.getElementById(`asign-loaddot-${jrId}`);
     if (barEl)   { barEl.style.width = `${barPct}%`; barEl.style.background = barColor; }
-    if (sigmaEl) sigmaEl.textContent = `Σ ${fmtNum(total)} pts`;
+    if (sigmaEl) sigmaEl.textContent = `${totalCount} ítem${totalCount !== 1 ? 's' : ''} · Σ ${fmtNum(total)} pts`;
+    this._updateJrProjectTags(jr);
+  },
+
+  /** Rebuild the project-tags row for a Jr's Section 2 drop card. */
+  _updateJrProjectTags(jr) {
+    const jrIdx  = this.JR_LIST.indexOf(jr);
+    if (jrIdx < 0) return;
+    const tagsEl = document.getElementById(`asign-jr-tags-jr${jrIdx}`);
+    if (!tagsEl) return;
+    const existing  = this._jrLoad?.[jr]?.items || [];
+    const draftItems = Array.from(this._asignDraft.values())
+      .filter(c => c.assignName === jr)
+      .map(c => this._apiTasks?.find(t => t.taskId === c.taskId))
+      .filter(Boolean);
+    tagsEl.innerHTML = this._jrProjectTagsHtml(existing, draftItems);
+  },
+
+  /** Shared helper — returns HTML for a Jr's project tag row. */
+  _jrProjectTagsHtml(existingItems, draftItems) {
+    const existing  = new Set((existingItems || []).map(i => i.project).filter(Boolean));
+    const draft     = new Set((draftItems    || []).map(i => i.project).filter(Boolean));
+    const draftOnly = new Set([...draft].filter(p => !existing.has(p)));
+    const all       = new Set([...existing, ...draft]);
+    if (!all.size) {
+      return `<span class="jr-project-tag jr-project-tag-none">Sin proyectos activos</span>`;
+    }
+    return [...all]
+      .map(p => `<span class="jr-project-tag${draftOnly.has(p) ? ' draft' : ''}">${esc(p)}</span>`)
+      .join('');
   },
 
   _updateBalance(container) {
