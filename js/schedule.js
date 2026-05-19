@@ -1478,6 +1478,26 @@ const Schedule = {
         </div>`;
     };
 
+    // ── Render a collapsible project group inside an Sr card ──────
+    const renderSrProjectGroup = (proj, sr, groupId) => {
+      const tasks = proj.tasks;
+      const allCovered = tasks.length > 0 && tasks.every(t =>
+        this._asignDraft.has(t.taskId) ||
+        t.allDesigners.some(d => this.JR_LIST.includes(d))
+      );
+      return `
+        <div class="asign-sr-proj-group${allCovered ? ' proj-group-covered' : ''}" data-group-id="${esc(groupId)}">
+          <div class="asign-sr-proj-row">
+            <span class="asign-sr-proj-chevron">▶</span>
+            <span class="asign-sr-proj-name">${esc(proj.projName)}</span>
+            <span class="asign-sr-proj-count">${tasks.length} ítem${tasks.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="asign-sr-proj-items" style="display:none">
+            ${tasks.map(t => renderDragItem(t, sr)).join('')}
+          </div>
+        </div>`;
+    };
+
     // Store Sr task map so _updateSrBar can recalculate remaining nivel reactively
     this._srTasks = new Map();
     for (const sr of this.SR_LIST) {
@@ -1518,7 +1538,7 @@ const Schedule = {
                    style="width:${barWidth}%;background:${barColor};transition:width 0.4s ease,background-color 0.3s ease"></div>
             </div>
             <div class="asign-sr-boardcard-items">
-              ${allTasks.map(t => renderDragItem(t, sr)).join('')}
+              ${projList.map((p, pi) => renderSrProjectGroup(p, sr, `${srId}-p${pi}`)).join('')}
             </div>
           </div>`;
       }),
@@ -1539,7 +1559,7 @@ const Schedule = {
                    style="width:${barWidth}%;background:${barColor};transition:width 0.4s ease,background-color 0.3s ease"></div>
             </div>
             <div class="asign-sr-boardcard-items">
-              ${allTasks.map(t => renderDragItem(t, null)).join('')}
+              ${noOwnerProjects.map((p, pi) => renderSrProjectGroup(p, null, `sr-none-p${pi}`)).join('')}
             </div>
           </div>`;
       })() : '',
@@ -1667,6 +1687,37 @@ const Schedule = {
     this._bindDraftBar(container, document.getElementById('asign-draft-bar'));
     this._bindChipFilter(container);
     this._bindJrToggle(container);
+    this._bindSrProjectToggle(container);
+  },
+
+  _bindSrProjectToggle(container) {
+    container.querySelectorAll('.asign-sr-proj-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const group   = row.closest('.asign-sr-proj-group');
+        if (!group) return;
+        const items   = group.querySelector('.asign-sr-proj-items');
+        const chevron = row.querySelector('.asign-sr-proj-chevron');
+        if (!items) return;
+        const isOpen  = items.style.display !== 'none';
+        items.style.display = isOpen ? 'none' : '';
+        if (chevron) chevron.textContent = isOpen ? '▶' : '▼';
+      });
+    });
+  },
+
+  /** Update the "fully covered" green border on a given Sr's project groups. */
+  _updateSrProjectCovered(sr, container) {
+    if (!container) return;
+    const srCard = container.querySelector(`.asign-sr-boardcard[data-sr="${CSS.escape(sr || '')}"]`);
+    if (!srCard) return;
+    srCard.querySelectorAll('.asign-sr-proj-group').forEach(group => {
+      const dragItems = [...group.querySelectorAll('.asign-drag-item')];
+      if (!dragItems.length) return;
+      const allCovered = dragItems.every(el =>
+        el.classList.contains('draft-assigned') || this._asignDraft.has(el.dataset.taskId)
+      );
+      group.classList.toggle('proj-group-covered', allCovered);
+    });
   },
 
   _bindJrToggle(container) {
@@ -2085,6 +2136,7 @@ const Schedule = {
     const sigmaEl   = document.getElementById(`asign-sr-sigma-${srId}`);
     if (barEl)   { barEl.style.width = `${barPct}%`; barEl.style.background = barColor; }
     if (sigmaEl) sigmaEl.textContent = `Σ ${fmtNum(remaining)} pts`;
+    this._updateSrProjectCovered(sr, container);
   },
 
   _updateBoardChips(jr, container) {
