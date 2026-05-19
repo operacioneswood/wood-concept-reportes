@@ -2207,66 +2207,132 @@ body {
 }
 .alerts-toggle:hover { background: var(--amber-border); }
 
-.alerts-zero-wrap { overflow: hidden; }
-.alerts-zero {
-  padding: 12px 18px;
-  font-size: 13px;
-  color: var(--green);
-  background: var(--green-bg);
-  border-left: 3px solid #10b981;
+#alerts-body {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-#alerts-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 16px; }
+/* ── Alert group ── */
+.alert-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.alert-group-hdr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.alert-group-emoji { font-size: 14px; flex-shrink: 0; }
 
 .alert-group-title {
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
-  margin-bottom: 8px;
   letter-spacing: .02em;
+  flex: 1;
 }
 
-.alert-group-body {
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
+/* ── Alert rows ── */
+.alert-rows { display: flex; flex-direction: column; }
 
 .alert-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 11px 14px;
-  border-bottom: 1px solid rgba(0,0,0,.06);
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(0,0,0,.05);
 }
 .alert-row:last-child { border-bottom: none; }
 
-/* Alert type colors — left border accent */
-.alert-type-1 { background: var(--amber-bg); border-left: 4px solid var(--amber-border); }
-.alert-type-2 { background: #ffedd5;          border-left: 4px solid #fb923c; }
-.alert-type-3 { background: var(--red-bg);    border-left: 4px solid var(--red-border); }
+/* Category accent colours */
+.alert-cat-1 { background: var(--amber-bg);  border-left: 3px solid var(--amber-border); }
+.alert-cat-2 { background: #fff7ed;           border-left: 3px solid #fb923c; }
+.alert-cat-3 { background: var(--red-bg);     border-left: 3px solid var(--red-border); }
 
-.alert-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
-.alert-body  { flex: 1; min-width: 0; }
+/* ── Row top line: icon + name + status badge ── */
+.alert-row-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+}
+
+.alert-icon-inline { font-size: 13px; flex-shrink: 0; }
 
 .alert-name {
   font-size: 13px;
   font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   line-height: 1.3;
+}
+.alert-cat-1 .alert-name { color: var(--amber); }
+.alert-cat-2 .alert-name { color: #c2410c; }
+.alert-cat-3 .alert-name { color: var(--red); }
+
+/* ── Status badge ── */
+.alert-status-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 100px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: .02em;
+}
+.sb-dibujo     { background: #dbeafe; color: #1d4ed8; }
+.sb-aprobacion { background: #ede9fe; color: #5b21b6; }
+.sb-revision   { background: #fef9c3; color: #854d0e; }
+.sb-aprobado   { background: #d1fae5; color: #065f46; }
+.sb-ebanisteria{ background: #fee2e2; color: #991b1b; }
+.sb-other      { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+.sb-notfound   { background: var(--bg); color: var(--faint);  font-style: italic; }
+
+/* ── Secondary lines ── */
+.alert-meta2 {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.alert-type-1 .alert-name { color: var(--amber); }
-.alert-type-2 .alert-name { color: #c2410c; }
-.alert-type-3 .alert-name { color: var(--red); }
 
-.alert-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.alert-stuck {
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.alert-cat-1 .alert-stuck { color: var(--amber); }
+.alert-cat-2 .alert-stuck { color: #c2410c; }
+.alert-cat-3 .alert-stuck { color: var(--red); }
 
-.alert-msg { font-size: 11.5px; margin-top: 4px; font-style: italic; }
-.alert-type-1 .alert-msg { color: var(--amber); }
-.alert-type-2 .alert-msg { color: #c2410c; }
-.alert-type-3 .alert-msg { color: var(--red); }
+.alert-date {
+  font-size: 11px;
+  color: var(--muted);
+}
+.alert-date-lbl {
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-right: 3px;
+}
+.alert-date-none { color: var(--faint); font-style: italic; }
+
+/* ── OK state within a category ── */
+.alert-ok {
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--green);
+  background: var(--green-bg);
+}
 
 /* ════════════════════════════════════════════════════════════
    PRINT STYLES

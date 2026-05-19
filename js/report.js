@@ -10,16 +10,18 @@ const Report = {
   _cuFile:   '',
   _regFile:  '',
   _valOpen:  true,
+  _cuTasks:  [],     // live ClickUp tasks — used by _renderAlerts
 
   // ── Public API ────────────────────────────────────────────
 
   /** Render a freshly-built report (from scoring.js). */
-  render(report, mode, cuFile, regFile) {
-    this._report  = report;
-    this._mode    = mode;
-    this._cuFile  = cuFile  || '';
-    this._regFile = regFile || '';
-    this._valOpen = true;
+  render(report, mode, cuFile, regFile, cuTasks) {
+    this._report   = report;
+    this._mode     = mode;
+    this._cuFile   = cuFile   || '';
+    this._regFile  = regFile  || '';
+    this._cuTasks  = cuTasks  || [];
+    this._valOpen  = true;
     this._paint();
   },
 
@@ -358,138 +360,246 @@ const Report = {
   },
 
   // ── Alerts section — cross-month follow-up ────────────────
-  // Loads the M-1 snapshot from Firestore and compares items
-  // with the current month M to surface stalled items.
-  // Called fire-and-forget from _paint(); updates DOM when done.
+  // Scans ALL stored snapshots to surface items stalled across
+  // 3 categories. Uses live cuTasks for current status + dates.
+  // Called fire-and-forget from _paint(); updates DOM when ready.
   async _renderAlerts() {
     const wrap = el('alerts-section');
     if (!wrap) return;
-    wrap.innerHTML = ''; // clear stale content while loading
+    wrap.innerHTML = '';
 
     const { month, year } = this._report;
-    const prevMonth = month === 1 ? 12 : month - 1;
-    const prevYear  = month === 1 ? year - 1 : year;
-    const prevLabel = `${MONTH_NAMES[prevMonth]} ${prevYear}`;
-    const currLabel = `${MONTH_NAMES[month]} ${year}`;
+    const cuTasks = this._cuTasks || [];
 
-    const prev = await Storage.load(prevYear, prevMonth);
-    if (!prev) return; // no prior snapshot — skip silently
+    // ── Live task lookup maps ──────────────────────────────
+    const cuByOp = new Map();
+    const cuByNP = new Map();
+    for (const t of cuTasks) {
+      const op = (t.op || '').trim();
+      if (op) cuByOp.set(op, t);
+      cuByNP.set((t.name || '') + '|' + (t.parent || ''), t);
+    }
+    const getLive = (op, name, project) => {
+      if (op && cuByOp.has(op)) return cuByOp.get(op);
+      return cuByNP.get((name || '') + '|' + (project || '')) || null;
+    };
 
-    // ── Key functions ──────────────────────────────────────
-    // Current report items: .op, .name, .parent
-    const mKey = i => i.op ? 'op:' + i.op
-      : 'np:' + (i.name || '') + '|' + (i.parent || '');
-    // Stored snapshot items: .op, .name, .project
+    // ── Key helpers ────────────────────────────────────────
+    // stored items have .op / .name / .project
     const sKey = i => i.op ? 'op:' + i.op
       : 'np:' + (i.name || '') + '|' + (i.project || '');
+    // current-report items have .op / .name / .parent
+    const mKey = i => i.op ? 'op:' + i.op
+      : 'np:' + (i.name || '') + '|' + (i.parent || '');
 
-    // ── M key sets from current report ─────────────────────
-    const mAllKeys  = new Set();
-    const mProdKeys = new Set();
-    const mApvKeys  = new Set();
+    // ── Load all previous snapshots ────────────────────────
+    const allSnaps = await Storage.loadAll();
+    const prevSnaps = allSnaps.filter(
+      s => s.year < year || (s.year === year && s.month < month)
+    );
+
+    // ── Build per-item history from previous snapshots ─────
+    // history[key] = {
+    //   phases: Set<phase>,
+    //   mostRecent: { dibujo|aprobado|produccion: {year,month,date} },
+    //   designer, name, project, op
+    // }
+    const INFER_PHASE = { drawing: 'dibujo', approved: 'aprobado', prod: 'produccion' };
+    const history = new Map();
+
+    for (const snap of prevSnaps) {
+      for (const [dName, d] of Object.entries(snap.designers || {})) {
+        for (const [arr, inferPhase] of Object.entries(INFER_PHASE)) {
+          for (const item of (d[arr] || [])) {
+            const k = sKey(item);
+            const phase = item.phase || inferPhase;
+            if (!history.has(k)) {
+              history.set(k, {
+                phases:     new Set(),
+                mostRecent: {},
+                _lastSnap:  null,
+                designer:   dName,
+                name:       item.name    || '',
+                project:    item.project || '',
+                op:         item.op      || '',
+              });
+            }
+            const h = history.get(k);
+            h.phases.add(phase);
+            // Track most-recent month per phase
+            const mr = h.mostRecent[phase];
+            if (!mr || snap.year > mr.year || (snap.year === mr.year && snap.month > mr.month)) {
+              h.mostRecent[phase] = { year: snap.year, month: snap.month, date: item.date || null };
+            }
+            // Update designer to most-recently-seen snapshot
+            if (!h._lastSnap || snap.year > h._lastSnap.year ||
+                (snap.year === h._lastSnap.year && snap.month > h._lastSnap.month)) {
+              h._lastSnap = { year: snap.year, month: snap.month };
+              h.designer  = dName;
+            }
+          }
+        }
+      }
+    }
+
+    // ── Current-report key sets ────────────────────────────
+    const currAllKeys  = new Set();
+    const currProdKeys = new Set();
     for (const d of this._report.designers) {
-      for (const i of (d.drawings    || [])) mAllKeys.add(mKey(i));
-      for (const i of (d.approved    || [])) { mAllKeys.add(mKey(i)); mApvKeys.add(mKey(i)); }
-      for (const i of (d.productions || [])) { mAllKeys.add(mKey(i)); mProdKeys.add(mKey(i)); }
-    }
-
-    // ── M-1 items from stored snapshot (dedup by key) ──────
-    const seenDraw = new Set(), seenApv = new Set();
-    const prevDraw = [], prevApv = [];
-
-    for (const [dName, d] of Object.entries(prev.designers || {})) {
-      for (const item of (d.drawing || [])) {
-        const k = sKey(item);
-        if (!seenDraw.has(k)) { seenDraw.add(k); prevDraw.push({ k, item, designer: dName }); }
-      }
-      for (const item of (d.approved || [])) {
-        const k = sKey(item);
-        if (!seenApv.has(k)) { seenApv.add(k); prevApv.push({ k, item, designer: dName }); }
+      for (const i of (d.drawings    || [])) currAllKeys.add(mKey(i));
+      for (const i of (d.approved    || [])) currAllKeys.add(mKey(i));
+      for (const i of (d.productions || [])) {
+        currAllKeys.add(mKey(i));
+        currProdKeys.add(mKey(i));
       }
     }
 
-    // ── Classify alerts ────────────────────────────────────
-    // Type 1: was in M-1 drawing, absent from M entirely
-    const alert1 = prevDraw.filter(e => !mAllKeys.has(e.k));
+    // ── Status sets for filtering ──────────────────────────
+    const DRAW_STALLED = new Set([
+      'en dibujo', 'enviado a aprobacion', 'revision de constructivo',
+    ]);
+    const COMPLETED = new Set([
+      'completado', 'cerrado', 'produccion completada',
+      'entregado', 'archivado', 'complete', 'closed',
+    ]);
 
-    // Type 2/3: was in M-1 approved, not yet in M production
-    //   Type 3 (subset): also still in M approved → 2+ months stalled
-    const alert23 = prevApv
-      .filter(e => !mProdKeys.has(e.k))
-      .map(e => ({ ...e, alertType: mApvKeys.has(e.k) ? 3 : 2 }));
+    // ── Helper: format a date string for display ───────────
+    // Accepts either "DD/MM/YYYY" (stored) or ClickUp "Weekday, Month D YYYY"
+    const fmtAlertDate = str => {
+      if (!str) return '';
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) return fmtDateShort(str);
+      const d = parseCUDate(str);
+      return d ? fmtDateShort(fmtDate(d)) : '';
+    };
 
-    const total = alert1.length + alert23.length;
+    // ── Classify into 3 categories ─────────────────────────
+    const cat1 = [], cat2 = [], cat3 = [];
 
-    // ── Row builder ────────────────────────────────────────
-    const mkRow = (e, type) => {
-      const i = e.item;
-      const meta = [
-        i.project ? esc(i.project)    : '',
-        i.op      ? `OP ${esc(i.op)}` : '',
+    for (const [key, h] of history) {
+      const live       = getLive(h.op, h.name, h.project);
+      const liveStatus = normStr(live?.status || '');
+
+      // ─── Cat 1: Estancado en dibujo ───────────────────────
+      if (
+        h.phases.has('dibujo') &&
+        !h.phases.has('aprobado') &&
+        !h.phases.has('produccion') &&
+        !currAllKeys.has(key)
+      ) {
+        // Only alert if live status confirms still in drawing, or no live task found
+        if (!live || DRAW_STALLED.has(liveStatus)) {
+          const mr      = h.mostRecent['dibujo'];
+          const dateRaw = live?.envioAprobacion || live?.finDibujo || mr?.date || null;
+          cat1.push({
+            ...h, key, live, liveStatus, dateRaw,
+            stuckSince: mr ? `${MONTH_NAMES[mr.month]} ${mr.year}` : '—',
+          });
+        }
+      }
+
+      // ─── Cat 2: Aprobado sin producción ───────────────────
+      if (
+        h.phases.has('aprobado') &&
+        !h.phases.has('produccion') &&
+        !currProdKeys.has(key)
+      ) {
+        if (!live || liveStatus === 'aprobado') {
+          const mr      = h.mostRecent['aprobado'];
+          const dateRaw = live?.aprobado || mr?.date || null;
+          cat2.push({
+            ...h, key, live, liveStatus, dateRaw,
+            stuckSince: mr ? `${MONTH_NAMES[mr.month]} ${mr.year}` : '—',
+          });
+        }
+      }
+
+      // ─── Cat 3: Producción demorada ────────────────────────
+      if (h.phases.has('produccion')) {
+        const mr = h.mostRecent['produccion'];
+        if (mr) {
+          const monthsDiff = (year - mr.year) * 12 + (month - mr.month);
+          if (monthsDiff > 1 && live && !COMPLETED.has(liveStatus)) {
+            const dateRaw = live?.envio || mr.date || null;
+            cat3.push({
+              ...h, key, live, liveStatus, dateRaw, monthsDiff,
+              stuckSince: `${MONTH_NAMES[mr.month]} ${mr.year}`,
+            });
+          }
+        }
+      }
+    }
+
+    const total = cat1.length + cat2.length + cat3.length;
+
+    // ── Status badge class ─────────────────────────────────
+    const sbClass = rawStatus => {
+      if (!rawStatus) return 'sb-notfound';
+      const s = normStr(rawStatus);
+      if (s === 'en dibujo')                              return 'sb-dibujo';
+      if (s.includes('aprobacion'))                       return 'sb-aprobacion';
+      if (s.includes('revision') || s.includes('constructivo')) return 'sb-revision';
+      if (s === 'aprobado')                               return 'sb-aprobado';
+      if (s.includes('ebanisteria') || s.includes('fabrica') ||
+          s.includes('produccion'))                       return 'sb-ebanisteria';
+      return 'sb-other';
+    };
+
+    // ── Row HTML ───────────────────────────────────────────
+    const CAT_ICON  = { 1: '🟡', 2: '🟠', 3: '🔴' };
+    const DATE_LBL  = { 1: 'Últ. fecha dibujo', 2: 'Fecha aprobado', 3: 'Envío fábrica' };
+
+    const mkRow = (e, cat) => {
+      const statusLabel = e.live?.status ? esc(e.live.status) : '—';
+      const dateFmt     = fmtAlertDate(e.dateRaw);
+      const metaParts   = [
+        e.project ? esc(e.project)    : '',
+        e.op      ? `OP ${esc(e.op)}` : '',
         esc(e.designer),
       ].filter(Boolean).join(' · ');
 
-      let icon, cls, msg;
-      if (type === 1) {
-        icon = '⚠';
-        cls  = 'alert-type-1';
-        msg  = `Dibujado en ${prevLabel} · Sin avance en ${currLabel}`;
-      } else if (type === 2) {
-        icon = '⚠';
-        cls  = 'alert-type-2';
-        msg  = `Aprobado en ${prevLabel} · Sin producción en ${currLabel}`;
-      } else {
-        icon = '🔴';
-        cls  = 'alert-type-3';
-        msg  = `Aprobado hace 2 meses · ${currLabel} y ${prevLabel} sin prod.`;
-      }
-
-      return `<div class="alert-row ${cls}">
-        <div class="alert-icon">${icon}</div>
-        <div class="alert-body">
-          <div class="alert-name">${esc(i.name)}</div>
-          <div class="alert-meta">${meta}</div>
-          <div class="alert-msg">${msg}</div>
+      return `<div class="alert-row alert-cat-${cat}">
+        <div class="alert-row-top">
+          <span class="alert-icon-inline">${CAT_ICON[cat]}</span>
+          <span class="alert-name">${esc(e.name)}</span>
+          <span class="alert-status-badge ${sbClass(e.live?.status)}">${statusLabel}</span>
         </div>
+        <div class="alert-meta2">${metaParts}</div>
+        <div class="alert-stuck">Desde ${esc(e.stuckSince)}${cat === 3 ? ` · ${e.monthsDiff} mes${e.monthsDiff !== 1 ? 'es' : ''}` : ''}</div>
+        ${dateFmt
+          ? `<div class="alert-date"><span class="alert-date-lbl">${DATE_LBL[cat]}</span> ${dateFmt}</div>`
+          : `<div class="alert-date alert-date-none">Sin fecha registrada</div>`}
       </div>`;
     };
 
-    // ── Zero-alerts state ──────────────────────────────────
-    if (total === 0) {
-      wrap.innerHTML = `<div class="alerts-section">
-        <div class="alerts-zero">✓ Sin alertas de seguimiento este mes</div>
+    // ── Group HTML (always shows all 3 categories) ─────────
+    const mkGroup = (items, cat, emoji, title) => `
+      <div class="alert-group">
+        <div class="alert-group-hdr">
+          <span class="alert-group-emoji">${emoji}</span>
+          <span class="alert-group-title">${esc(title)}</span>
+          ${items.length ? `<span class="alerts-badge">${items.length}</span>` : ''}
+        </div>
+        ${items.length
+          ? `<div class="alert-rows">${items.map(e => mkRow(e, cat)).join('')}</div>`
+          : `<div class="alert-ok">✓ Sin ítems en esta categoría</div>`}
       </div>`;
-      return;
-    }
-
-    // ── Build group HTML ───────────────────────────────────
-    const s1 = alert1.length ? `
-      <div class="alert-group">
-        <div class="alert-group-title">Sin avance desde dibujo (${alert1.length})</div>
-        <div class="alert-group-body">
-          ${alert1.map(e => mkRow(e, 1)).join('')}
-        </div>
-      </div>` : '';
-
-    const s23 = alert23.length ? `
-      <div class="alert-group">
-        <div class="alert-group-title">Aprobado sin enviar a fábrica (${alert23.length})</div>
-        <div class="alert-group-body">
-          ${alert23.map(e => mkRow(e, e.alertType)).join('')}
-        </div>
-      </div>` : '';
 
     wrap.innerHTML = `
       <div class="alerts-section">
         <div class="alerts-header" id="alerts-header">
           <span class="alerts-title">⚠ ALERTAS DE SEGUIMIENTO</span>
-          <span class="alerts-badge">${total} alerta${total !== 1 ? 's' : ''}</span>
+          ${total ? `<span class="alerts-badge">${total} alerta${total !== 1 ? 's' : ''}</span>` : ''}
           <button class="alerts-toggle" id="alerts-toggle">▲ Colapsar</button>
         </div>
-        <div id="alerts-body">${s1}${s23}</div>
+        <div id="alerts-body">
+          ${mkGroup(cat1, 1, '🟡', 'Estancado en dibujo')}
+          ${mkGroup(cat2, 2, '🟠', 'Aprobado sin producción')}
+          ${mkGroup(cat3, 3, '🔴', 'Producción demorada')}
+        </div>
       </div>`;
 
-    el('alerts-header').addEventListener('click', () => {
+    const hdr = el('alerts-header');
+    if (hdr) hdr.addEventListener('click', () => {
       const body = el('alerts-body');
       const btn  = el('alerts-toggle');
       if (!body || !btn) return;

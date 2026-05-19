@@ -409,7 +409,7 @@ const App = {
       const allSavedMonths = await Storage.loadAll();
       const report         = buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths);
 
-      Report.render(report, mode, this._cuFile, this._regFile);
+      Report.render(report, mode, this._cuFile, this._regFile, cuTasks);
 
       // Enable and switch to report screen
       const navReport = document.getElementById('nav-btn-report');
