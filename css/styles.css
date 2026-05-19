@@ -2207,6 +2207,19 @@ body {
 }
 .alerts-toggle:hover { background: var(--amber-border); }
 
+.alerts-print-btn {
+  font-size: 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  opacity: .65;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.alerts-print-btn:hover { opacity: 1; background: var(--amber-border); }
+
 #alerts-body {
   padding: 12px 16px;
   display: flex;

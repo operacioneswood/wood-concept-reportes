@@ -488,10 +488,20 @@ const Report = {
       ) {
         // Only alert if live status confirms still in drawing, or no live task found
         if (!live || DRAW_STALLED.has(liveStatus)) {
-          const mr      = h.mostRecent['dibujo'];
-          const dateRaw = live?.envioAprobacion || live?.finDibujo || mr?.date || null;
+          const mr = h.mostRecent['dibujo'];
+          let dateRaw, dateLbl;
+          if (live?.envioAprobacion) {
+            dateRaw = live.envioAprobacion;
+            dateLbl = 'Fecha envío a aprobación';
+          } else if (live?.finDibujo) {
+            dateRaw = live.finDibujo;
+            dateLbl = 'Fecha fin dibujo';
+          } else {
+            dateRaw = mr?.date || null;
+            dateLbl = 'Últ. fecha dibujo';
+          }
           cat1.push({
-            ...h, key, live, liveStatus, dateRaw,
+            ...h, key, live, liveStatus, dateRaw, dateLbl,
             stuckSince: mr ? `${MONTH_NAMES[mr.month]} ${mr.year}` : '—',
           });
         }
@@ -551,6 +561,7 @@ const Report = {
     const mkRow = (e, cat) => {
       const statusLabel = e.live?.status ? esc(e.live.status) : '—';
       const dateFmt     = fmtAlertDate(e.dateRaw);
+      const dateLbl     = e.dateLbl || DATE_LBL[cat];
       const metaParts   = [
         e.project ? esc(e.project)    : '',
         e.op      ? `OP ${esc(e.op)}` : '',
@@ -566,7 +577,7 @@ const Report = {
         <div class="alert-meta2">${metaParts}</div>
         <div class="alert-stuck">Desde ${esc(e.stuckSince)}${cat === 3 ? ` · ${e.monthsDiff} mes${e.monthsDiff !== 1 ? 'es' : ''}` : ''}</div>
         ${dateFmt
-          ? `<div class="alert-date"><span class="alert-date-lbl">${DATE_LBL[cat]}</span> ${dateFmt}</div>`
+          ? `<div class="alert-date"><span class="alert-date-lbl">${dateLbl}</span> ${dateFmt}</div>`
           : `<div class="alert-date alert-date-none">Sin fecha registrada</div>`}
       </div>`;
     };
@@ -584,11 +595,14 @@ const Report = {
           : `<div class="alert-ok">✓ Sin ítems en esta categoría</div>`}
       </div>`;
 
+    const reportTitle = `Alertas · ${MONTH_NAMES[month]} ${year}`;
+
     wrap.innerHTML = `
       <div class="alerts-section">
         <div class="alerts-header" id="alerts-header">
           <span class="alerts-title">⚠ ALERTAS DE SEGUIMIENTO</span>
           ${total ? `<span class="alerts-badge">${total} alerta${total !== 1 ? 's' : ''}</span>` : ''}
+          <button class="alerts-print-btn" id="alerts-print-btn" title="Imprimir / guardar como PDF">🖨</button>
           <button class="alerts-toggle" id="alerts-toggle">▲ Colapsar</button>
         </div>
         <div id="alerts-body">
@@ -598,8 +612,11 @@ const Report = {
         </div>
       </div>`;
 
+    // ── Collapse toggle ────────────────────────────────────
     const hdr = el('alerts-header');
-    if (hdr) hdr.addEventListener('click', () => {
+    if (hdr) hdr.addEventListener('click', e => {
+      // Don't collapse when clicking the print or toggle buttons directly
+      if (e.target.closest('#alerts-toggle, #alerts-print-btn')) return;
       const body = el('alerts-body');
       const btn  = el('alerts-toggle');
       if (!body || !btn) return;
@@ -607,6 +624,65 @@ const Report = {
       body.style.display = open ? 'none' : '';
       btn.textContent    = open ? '▼ Expandir' : '▲ Colapsar';
     });
+    const toggleBtn = el('alerts-toggle');
+    if (toggleBtn) toggleBtn.addEventListener('click', () => {
+      const body = el('alerts-body');
+      if (!body) return;
+      const open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : '';
+      toggleBtn.textContent = open ? '▼ Expandir' : '▲ Colapsar';
+    });
+
+    // ── Print button ───────────────────────────────────────
+    const printBtn = el('alerts-print-btn');
+    if (printBtn) printBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      this._printAlerts(reportTitle);
+    });
+  },
+
+  /** Open a stripped-down window with just the alerts and trigger print. */
+  _printAlerts(title) {
+    const body = el('alerts-body');
+    if (!body) return;
+
+    // Pull the main stylesheet href so the popup gets the same classes
+    const styleLink = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+      .map(l => `<link rel="stylesheet" href="${l.href}">`)
+      .join('\n');
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>${esc(title)}</title>
+  ${styleLink}
+  <style>
+    body { margin: 24px 28px; font-family: inherit; background: #fff; }
+    .alerts-print-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; color: #1e293b; }
+    /* hide print / toggle controls inside the popup */
+    #alerts-print-btn, .alerts-toggle { display: none !important; }
+    .alerts-header { cursor: default !important; }
+    @media print {
+      body { margin: 10mm 12mm; }
+      @page { margin: 10mm 12mm; size: A4; }
+    }
+  </style>
+</head>
+<body>
+  <div class="alerts-print-title">${esc(title)}</div>
+  <div class="alerts-section">
+    <div class="alerts-header">
+      <span class="alerts-title">⚠ ALERTAS DE SEGUIMIENTO</span>
+    </div>
+    <div id="alerts-body">${body.innerHTML}</div>
+  </div>
+  <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); };<\/script>
+</body>
+</html>`;
+
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (w) { w.document.write(html); w.document.close(); }
   },
 
   _renderFooter() {
