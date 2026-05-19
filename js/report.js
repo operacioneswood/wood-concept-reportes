@@ -300,6 +300,9 @@ const Report = {
       + mkCol(d.productions,       'Producción', 'var(--prod-text)')
       : mkCol(d.productions,       'Producción', 'var(--prod-text)');
 
+    // Safe ID for per-designer alert placeholder (no spaces or special chars)
+    const safeId = 'dalerts-' + d.name.replace(/[^a-zA-Z0-9]/g, '_');
+
     return `
     <div class="designer-card">
       <div class="card-header">
@@ -326,6 +329,7 @@ const Report = {
       <div class="card-body ${bodyClass}">
         ${bodyContent}
       </div>
+      <div class="designer-alerts-wrap" id="${safeId}"></div>
     </div>`;
   },
 
@@ -541,7 +545,7 @@ const Report = {
 
     const total = cat1.length + cat2.length + cat3.length;
 
-    // ── Status badge class ─────────────────────────────────
+    // ── Status badge class (shared by per-designer + global) ──
     const sbClass = rawStatus => {
       if (!rawStatus) return 'sb-notfound';
       const s = normStr(rawStatus);
@@ -594,6 +598,41 @@ const Report = {
           ? `<div class="alert-rows">${items.map(e => mkRow(e, cat)).join('')}</div>`
           : `<div class="alert-ok">✓ Sin ítems en esta categoría</div>`}
       </div>`;
+
+    // ── Inject per-designer alert mini-panels ─────────────
+    for (const d of this._report.designers) {
+      const safeId  = 'dalerts-' + d.name.replace(/[^a-zA-Z0-9]/g, '_');
+      const slot    = document.getElementById(safeId);
+      if (!slot) continue;
+
+      const dCat1 = cat1.filter(e => e.designer === d.name);
+      const dCat2 = cat2.filter(e => e.designer === d.name);
+      const dCat3 = cat3.filter(e => e.designer === d.name);
+      const dTotal = dCat1.length + dCat2.length + dCat3.length;
+
+      if (!dTotal) { slot.innerHTML = ''; continue; }
+
+      const mkDGroup = (items, cat, emoji, label) => items.length === 0 ? '' : `
+        <div class="dalert-group">
+          <div class="dalert-group-hdr">
+            <span>${emoji}</span>
+            <span class="dalert-group-title">${label}</span>
+            <span class="dalert-count">${items.length}</span>
+          </div>
+          <div class="alert-rows">${items.map(e => mkRow(e, cat)).join('')}</div>
+        </div>`;
+
+      slot.innerHTML = `
+        <div class="designer-alerts-inner">
+          <div class="dalert-hdr">
+            <span class="dalert-title">⚠ Alertas de seguimiento</span>
+            <span class="alerts-badge">${dTotal}</span>
+          </div>
+          ${mkDGroup(dCat1, 1, '🟡', 'Estancado en dibujo')}
+          ${mkDGroup(dCat2, 2, '🟠', 'Aprobado sin producción')}
+          ${mkDGroup(dCat3, 3, '🔴', 'Producción demorada')}
+        </div>`;
+    }
 
     const reportTitle = `Alertas · ${MONTH_NAMES[month]} ${year}`;
 
