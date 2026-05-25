@@ -165,7 +165,7 @@ const ClickUpIntegration = {
 
     // ── Step 4 — Detect custom fields + parse ─────────────────
     prog(`Detectando campos… (${rawTasks.length} tareas)`);
-    const detection   = await this._detectFields(listIds[0]);
+    const detection   = await this._detectFields(listIds[0], rawTasks);
     const parsedTasks = parseClickUpAPI(rawTasks, detection.ids);
 
     localStorage.setItem(this._SYNC_TIME_KEY,  new Date().toISOString());
@@ -353,13 +353,27 @@ const ClickUpIntegration = {
 
   // ── Field detection ────────────────────────────────────────
 
-  async _detectFields(listId) {
+  async _detectFields(listId, rawTasks = []) {
     let fields = [];
     try {
       const data = await this._call(`list/${listId}/field`);
       fields = data.fields || [];
     } catch (e) {
       console.warn('[ClickUp] Field detection failed:', e.message);
+    }
+
+    // Supplement: scan raw tasks for custom field names/IDs that may not appear
+    // on the list-level /field endpoint (e.g. space-scoped or folder-scoped fields).
+    // This guarantees we find every field that actually has a value on a task.
+    {
+      const seenIds = new Set(fields.map(f => f.id));
+      for (const t of rawTasks) {
+        for (const cf of (t.custom_fields || [])) {
+          if (!cf.id || !cf.name || seenIds.has(cf.id)) continue;
+          seenIds.add(cf.id);
+          fields.push({ id: cf.id, name: cf.name, type: cf.type || '' });
+        }
+      }
     }
 
     const find = (...keywords) => {
