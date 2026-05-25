@@ -243,9 +243,20 @@ const Report = {
     const isBelow = d.total < mean - 0.001;
     const pc      = isAbove ? 'pill-above' : isBelow ? 'pill-below' : 'pill-neutral';
     const arrow   = isAbove ? ' ↑' : isBelow ? ' ↓' : '';
+    // Note: pct, isAbove/isBelow use d.total (precise) for accurate bar/comparison.
+    // The header pill uses displayTotal (computed below) for visual consistency.
     const showTiered = mode !== 'C'; // Mode C only has Producción
 
-    const ptsPerItem = d.itemCount > 0 ? (d.total / d.itemCount).toFixed(1) : '0.0';
+    // Display-consistent total: sum the already-rounded column values so that the
+    // header always matches what the column subtotals add up to visually.
+    // (Raw d.total can differ by ±0.1 due to float rounding, e.g. 10.25 → "10.3" but
+    //  1.5 + 10.25 + 0.2 = 11.9499... → "11.9" instead of "12".)
+    const displayTotal = parseFloat(fmtNum(d.dTotal || 0))
+                       + parseFloat(fmtNum(d.apvTotal || 0))
+                       + parseFloat(fmtNum(d.pTotal || 0))
+                       + parseFloat(fmtNum(d.rTotal || 0));
+
+    const ptsPerItem = d.itemCount > 0 ? (displayTotal / d.itemCount).toFixed(1) : '0.0';
 
     // Inline stats
     const allItems   = showTiered
@@ -321,7 +332,7 @@ const Report = {
           <div class="designer-dot" style="background:${d.color}"></div>
           <div class="designer-name">${esc(d.name)}</div>
           <div class="pills">
-            <span class="pill ${pc}">${fmtNum(d.total)} pts${arrow}</span>
+            <span class="pill ${pc}">${fmtNum(displayTotal)} pts${arrow}</span>
             ${pillCounts}
             <span class="pill pill-neutral">${ptsPerItem} pts/ítem</span>
           </div>
