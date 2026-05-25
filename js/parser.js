@@ -179,6 +179,9 @@ function parseCUCSV(rows) {
   const iEnvio = hdr.findIndex(h => normStr(h).includes('envio a fabrica'));
   // "NO. DE CORRECCIONES (number)"
   const iCorr  = hdr.findIndex(h => normStr(h).includes('correcciones'));
+  const iIniRep = hdr.findIndex(h => normStr(h).includes('inicio reproceso'));
+  const iFinRep = hdr.findIndex(h => normStr(h).includes('fin reproceso'));
+  const iCausa  = hdr.findIndex(h => normStr(h).includes('causa reproceso'));
 
   const tasks = [];
 
@@ -202,6 +205,9 @@ function parseCUCSV(rows) {
       envioAprobacion: iEnvA  !== -1 ? (row[iEnvA]  || '').trim() : '',
       envio:           iEnvio !== -1 ? (row[iEnvio] || '').trim() : '',
       corrections:     iCorr  !== -1 ? (parseInt(row[iCorr] || '0') || 0) : 0,
+      inicioReproceso: iIniRep !== -1 ? (row[iIniRep] || '').trim() : '',
+      finReproceso:    iFinRep !== -1 ? (row[iFinRep] || '').trim() : '',
+      causaReproceso:  iCausa  !== -1 ? (row[iCausa]  || '').trim() : '',
     });
   }
 
@@ -309,6 +315,17 @@ function parseClickUpAPI(rawTasks, fieldIds) {
       const envARaw = _cuFieldVal(t, fids.envioAprobacion);
       const envRaw  = _cuFieldVal(t, fids.envio);
       const corrRaw = _cuFieldVal(t, fids.corrections);
+      const iniRepRaw = _cuFieldVal(t, fids.inicioReproceso);
+      const finRepRaw = _cuFieldVal(t, fids.finReproceso);
+      // Dropdown: value might be { id, name } — handle both object and string
+      const causaRaw  = (() => {
+        const fid = fids.causaReproceso;
+        if (!fid) return '';
+        const f = (t.custom_fields || []).find(cf => cf.id === fid);
+        if (!f || f.value == null) return '';
+        if (typeof f.value === 'object') return String(f.value.name ?? f.value.value ?? f.value.date ?? '');
+        return String(f.value);
+      })();
 
       return {
         name:            t.name || '',
@@ -322,6 +339,9 @@ function parseClickUpAPI(rawTasks, fieldIds) {
         envioAprobacion: tsToDateStr(envARaw),
         envio:           tsToDateStr(envRaw),
         corrections:     parseInt(corrRaw || '0') || 0,
+        inicioReproceso: tsToDateStr(iniRepRaw),
+        finReproceso:    tsToDateStr(finRepRaw),
+        causaReproceso:  causaRaw,
       };
     });
 }

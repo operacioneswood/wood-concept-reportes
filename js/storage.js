@@ -135,6 +135,7 @@ function reportToStorage(report, mode) {
     avgCorrections: report.metrics.avgCorrections || 0,
     starProject:    report.metrics.starProject    || '',
     starPts:        report.metrics.starPts        || 0,
+    tRep:           report.metrics.tRep            || 0,
     topDesigner:    report.metrics.topDesigner    || null,
   };
 
@@ -157,6 +158,8 @@ function reportToStorage(report, mode) {
       itemCount:    d.itemCount,
       projectCount: d.projects.length,
       projects:     d.projects,
+      reprocesos:   (d.reprocesos || []).map(reprocesoToStorage),
+      ptsReprocesos: d.rTotal || 0,
     };
   }
 
@@ -252,9 +255,11 @@ function storedToRender(stored) {
       drawings:    drawingsFinal,
       approved,
       productions,
+      reprocesos:  (d.reprocesos || []).map(storedReprocesoToRender),
       dTotal,
       apvTotal,
       pTotal,
+      rTotal:      d.ptsReprocesos || 0,
       aTotal,
       total:       d.total || 0,
       // aliases for dashboard
@@ -306,6 +311,7 @@ function storedToRender(stored) {
       rawApv:         stored.rawApv         || 0,
       rawProd:        stored.rawProd        || 0,
       rawApprob:      stored.rawApprob      || 0,
+      tRep:           stored.tRep            || 0,
       avgCorrections: stored.avgCorrections || 0,
       starProject:    stored.starProject    || '',
       starPts:        stored.starPts        || 0,
@@ -334,6 +340,33 @@ function storedItemToRender(item) {
     fromRegOnly:   item.fromRegOnly    || false,
     unconfirmed:   item.unconfirmed    || false,
     corrections:   item.corrections    || 0,
+  };
+}
+
+function reprocesoToStorage(item) {
+  return {
+    op:              item.op              || '',
+    name:            item.name            || '',
+    project:         item.parent          || '',
+    nivel:           item.level           != null ? item.level : null,
+    pts:             item.pts             || 0,
+    causa:           item.causa           || null,
+    finReproceso:    item.finReproceso    || null,
+    inicioReproceso: item.inicioReproceso || null,
+  };
+}
+
+function storedReprocesoToRender(item) {
+  return {
+    name:            item.name            || '',
+    parent:          item.project         || '',
+    op:              item.op              || '',
+    level:           item.nivel           != null ? item.nivel : null,
+    pts:             item.pts             || 0,
+    causa:           item.causa           || null,
+    informativo:     item.causa           !== 'Cliente',
+    finReproceso:    item.finReproceso    || null,
+    inicioReproceso: item.inicioReproceso || null,
   };
 }
 

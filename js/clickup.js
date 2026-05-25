@@ -387,6 +387,9 @@ const ClickUpIntegration = {
     const envioAprobacion = find('envio a aprobacion', 'envio aprobacion', 'fecha envio aprobacion');
     const envio           = find('envio a fabrica', 'envio fabrica', 'fecha envio', 'fecha de envio', 'envio', 'fabrica');
     const corrections     = find('no. de correcciones', 'numero de correcciones', 'correcciones');
+    const inicioReproceso = find('inicio reproceso');
+    const finReproceso    = find('fin reproceso');
+    const causaReproceso  = find('causa reproceso');
 
     console.info('[ClickUp] %d fields available. Detected:', fields.length);
     console.table({
@@ -397,6 +400,9 @@ const ClickUpIntegration = {
       envioAprobacion: envioAprobacion?.name || '— NOT FOUND',
       envio:           envio?.name           || '— NOT FOUND',
       corrections:     corrections?.name     || '— NOT FOUND',
+      inicioReproceso: inicioReproceso?.name || '— NOT FOUND',
+      finReproceso:    finReproceso?.name    || '— NOT FOUND',
+      causaReproceso:  causaReproceso?.name  || '— NOT FOUND',
     });
     if (fields.length) {
       console.info('[ClickUp] All fields:', fields.map(f => `"${f.name}" (${f.type})`).join(', '));
@@ -412,6 +418,9 @@ const ClickUpIntegration = {
         envioAprobacion: envioAprobacion?.id || null,
         envio:           envio?.id           || null,
         corrections:     corrections?.id     || null,
+        inicioReproceso: inicioReproceso?.id || null,
+        finReproceso:    finReproceso?.id    || null,
+        causaReproceso:  causaReproceso?.id  || null,
       },
       names: {
         op:              op?.name              || null,
@@ -422,6 +431,9 @@ const ClickUpIntegration = {
         envioAprobacion: envioAprobacion?.name || null,
         envio:           envio?.name           || null,
         corrections:     corrections?.name     || null,
+        inicioReproceso: inicioReproceso?.name || null,
+        finReproceso:    finReproceso?.name    || null,
+        causaReproceso:  causaReproceso?.name  || null,
       },
     };
   },

@@ -86,6 +86,7 @@ const Report = {
       { l: 'Puntos dibujo',         v: fmtNum(mt.tDraw || 0),         s: 'Dibujo de aprobación (50%)',   x: '' },
       { l: 'Puntos aprobados',      v: fmtNum(mt.tApv  || 0),         s: 'Aprobado por cliente (60%)',   x: '' },
       { l: 'Puntos producción',     v: fmtNum(mt.tPrd  || 0),         s: 'Enviado a fábrica (100%)',     x: '' },
+      { l: 'Pts reprocesos',        v: fmtNum(mt.tRep  || 0),         s: 'Solo causa: Cliente (+10%)',   x: '' },
       // ── General ──────────────────────────────────────────
       { type: 'header', label: 'General' },
       { l: 'Ítems trabajados',      v: String(mt.uniqueItems || 0),   s: 'Únicos este mes',            x: '' },
@@ -279,7 +280,8 @@ const Report = {
       ? `<span class="pill pill-neutral" style="color:var(--aprob-text)">${drawCount} dibujo</span>
          <span class="pill pill-neutral" style="color:var(--apv-text)">${apvCount} aprobado</span>
          <span class="pill pill-neutral" style="color:var(--prod-text)">${prodCount} prod</span>
-         <span class="pill pill-neutral">${totalItems} ítem${totalItems !== 1 ? 's' : ''}</span>`
+         <span class="pill pill-neutral">${totalItems} ítem${totalItems !== 1 ? 's' : ''}</span>
+         ${(d.reprocesos || []).length > 0 ? `<span class="pill pill-reproc">${(d.reprocesos||[]).length} reproc</span>` : ''}`
       : `<span class="pill pill-neutral">${d.itemCount} ítem${d.itemCount !== 1 ? 's' : ''}</span>`;
 
     // Item rows per tier
@@ -293,11 +295,20 @@ const Report = {
         ${items.length ? `<div class="col-subtotal"><span>Subtotal</span><span>${fmtNum(items.reduce((s,i)=>s+i.score,0))} pts</span></div>` : ''}
       </div>`;
 
-    const bodyClass = showTiered ? 'three-col' : 'single-col';
+    const reprocesos    = d.reprocesos || [];
+    const mkReprocesoCol = items => {
+      const hdr = `<div class="col-heading"><div class="col-dot" style="background:#f59e0b"></div><span style="color:#f59e0b">Reprocesos</span></div>`;
+      if (!items.length) return `<div class="item-col reproc-col">${hdr}<div class="col-empty">Sin reprocesos este mes</div></div>`;
+      const subtotal = parseFloat(items.reduce((s,i) => s + i.pts, 0).toFixed(2));
+      return `<div class="item-col reproc-col">${hdr}${items.map(reprocesoRowHTML).join('')}<div class="col-subtotal"><span>Subtotal</span><span>${fmtNum(subtotal)} pts</span></div></div>`;
+    };
+
+    const bodyClass = showTiered ? 'four-col' : 'single-col';
     const bodyContent = showTiered
       ? mkCol(d.drawings    || [], 'Dibujo',     'var(--aprob-text)')
       + mkCol(d.approved    || [], 'Aprobado',   'var(--apv-text)')
       + mkCol(d.productions,       'Producción', 'var(--prod-text)')
+      + mkReprocesoCol(reprocesos)
       : mkCol(d.productions,       'Producción', 'var(--prod-text)');
 
     // Safe ID for per-designer alert placeholder (no spaces or special chars)
@@ -543,7 +554,33 @@ const Report = {
       }
     }
 
-    const total = cat1.length + cat2.length + cat3.length;
+    // ── Cat 4: Reprocesos pendientes ───────────────────────
+    const cat4 = [];
+    const today = new Date();
+    for (const t of cuTasks) {
+      if (!t.inicioReproceso || t.finReproceso) continue;
+      const dIni = parseCUDate(t.inicioReproceso);
+      if (!dIni) continue;
+      const daysDiff = Math.floor((today - dIni) / (1000 * 60 * 60 * 24));
+      if (daysDiff < 7) continue;
+      const designersList = mapDesignersCU(t.assignee || '');
+      const designer      = designersList[0] || '—';
+      const causa         = normalizeCausa(t.causaReproceso);
+      const live          = getLive(t.op || '', t.name || '', t.parent || '');
+      cat4.push({
+        name:       t.name    || '',
+        op:         t.op      || '',
+        project:    t.parent  || '',
+        designer,
+        daysDiff,
+        dateRaw:    fmtDate(dIni),
+        causa,
+        liveStatus: normStr(live?.status || ''),
+        live,
+      });
+    }
+
+    const total = cat1.length + cat2.length + cat3.length + cat4.length;
 
     // ── Status badge class (shared by per-designer + global) ──
     const sbClass = rawStatus => {
@@ -599,6 +636,25 @@ const Report = {
           : `<div class="alert-ok">✓ Sin ítems en esta categoría</div>`}
       </div>`;
 
+    const mkRow4 = e => {
+      const causeTxt = e.causa === 'Cliente' ? 'Cliente' : e.causa === 'Diseñador' ? 'Diseñador' : 'Sin causa';
+      const metaParts = [
+        e.project ? esc(e.project) : '',
+        e.op      ? `OP ${esc(e.op)}` : '',
+        esc(e.designer),
+      ].filter(Boolean).join(' · ');
+      return `<div class="alert-row alert-cat-1">
+        <div class="alert-row-top">
+          <span class="alert-icon-inline">⚠</span>
+          <span class="alert-name">${esc(e.name)}</span>
+          <span class="alert-status-badge sb-revision">En reproceso</span>
+        </div>
+        <div class="alert-meta2">${metaParts}</div>
+        <div class="alert-stuck">Iniciado el ${esc(e.dateRaw || '—')} · ${e.daysDiff} día${e.daysDiff !== 1 ? 's' : ''} sin entregar</div>
+        <div class="alert-date"><span class="alert-date-lbl">Causa</span> <span class="reproc-cause-badge ${e.causa === 'Cliente' ? 'reproc-cause-cliente' : 'reproc-cause-disenador'}">${esc(causeTxt)}</span></div>
+      </div>`;
+    };
+
     // ── Inject per-designer alert mini-panels ─────────────
     for (const d of this._report.designers) {
       const safeId  = 'dalerts-' + d.name.replace(/[^a-zA-Z0-9]/g, '_');
@@ -648,6 +704,7 @@ const Report = {
           ${mkGroup(cat1, 1, '🟡', 'Estancado en dibujo')}
           ${mkGroup(cat2, 2, '🟠', 'Aprobado sin producción')}
           ${mkGroup(cat3, 3, '🔴', 'Producción demorada')}
+          ${cat4.length ? `<div class="alert-group"><div class="alert-group-hdr"><span class="alert-group-emoji">⚠</span><span class="alert-group-title">Reprocesos pendientes</span><span class="alerts-badge">${cat4.length}</span></div><div class="alert-rows">${cat4.map(mkRow4).join('')}</div></div>` : ''}
         </div>
       </div>`;
 
@@ -791,6 +848,33 @@ function correctionsBadge(n) {
   if (!n) return '';
   const cls = n >= 5 ? 'corr-high' : n >= 3 ? 'corr-mid' : 'corr-low';
   return `<span class="${cls}">↺ ${n}</span>`;
+}
+
+function reprocesoRowHTML(item) {
+  const isMuted  = item.causa !== 'Cliente';
+  const causeTxt = item.causa === 'Cliente'   ? 'Cliente'
+                 : item.causa === 'Diseñador' ? 'Diseñador' : 'Sin causa';
+  const causeCls = item.causa === 'Cliente' ? 'reproc-cause-cliente' : 'reproc-cause-disenador';
+  const ptsLabel = item.pts > 0 ? `+${fmtNum(item.pts)} pt` : '0 pts';
+  const ptsCls   = item.pts > 0 ? 'reproc-pts-cliente' : 'reproc-pts-zero';
+  const nivStr   = item.level !== null ? `N${fmtNum(item.level)}` : '—';
+  const dateFmt  = item.finReproceso ? fmtDateShort(item.finReproceso) : '';
+  const metaParts = [
+    item.op      ? `OP ${esc(item.op)}` : '',
+    dateFmt,
+    `<span class="item-niv">${esc(nivStr)}</span>`,
+  ].filter(Boolean);
+  return `<div class="item-row reproc-row${isMuted ? ' reproc-muted' : ''}">
+    <div class="item-info">
+      <div class="item-name">${esc(item.name)}</div>
+      ${item.parent ? `<div class="item-project">${esc(item.parent)}</div>` : ''}
+      ${metaParts.length ? `<div class="item-meta">${metaParts.join(' · ')}</div>` : ''}
+    </div>
+    <div class="item-score">
+      <span class="${ptsCls}">${ptsLabel}</span>
+      <span class="reproc-cause-badge ${causeCls}">${esc(causeTxt)}</span>
+    </div>
+  </div>`;
 }
 
 function itemRowHTML(item) {

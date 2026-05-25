@@ -23,6 +23,15 @@ const PHASE_PCT = {
 };
 const PHASE_RANK = { dibujo: 1, aprobado: 2, produccion: 3 };
 
+/** Normalize raw causa reproceso string to 'Cliente', 'Diseñador', or null. */
+function normalizeCausa(raw) {
+  if (!raw) return null;
+  const s = (raw + '').toLowerCase().trim();
+  if (s.includes('cliente'))                          return 'Cliente';
+  if (s.includes('dise') || s.includes('disenador')) return 'Diseñador';
+  return raw.trim() || null;
+}
+
 /**
  * Build a complete in-memory report object from parsed CSV/API data.
  *
@@ -129,11 +138,11 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
 
   // ── 3. Designer buckets ──────────────────────────────────
   const dMap   = new Map();
-  const unasgn = { drawings: [], approved: [], productions: [], usedOPs: new Set() };
+  const unasgn = { drawings: [], approved: [], productions: [], reprocesos: [], usedOPs: new Set() };
 
   function getBucket(name) {
     if (!dMap.has(name))
-      dMap.set(name, { drawings: [], approved: [], productions: [], usedOPs: new Set() });
+      dMap.set(name, { drawings: [], approved: [], productions: [], reprocesos: [], usedOPs: new Set() });
     return dMap.get(name);
   }
 
@@ -266,6 +275,37 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
       }
     }
 
+    // ── 4b-r. Reprocesos (finReproceso in month) ──────────
+    for (const t of cuTasks) {
+      const dFinRep = parseCUDate(t.finReproceso);
+      if (!inMonth(dFinRep)) continue;
+
+      const designersList   = mapDesignersCU(t.assignee);
+      if (!designersList.length && t.assignee && t.assignee.trim()) continue;
+      const primaryDesigner = designersList[0] || null;
+      const bkt = primaryDesigner ? getBucket(primaryDesigner) : unasgn;
+
+      const causa     = normalizeCausa(t.causaReproceso);
+      const nivel     = t.nivel;
+      const pts       = (causa === 'Cliente' && nivel !== null)
+        ? parseFloat((nivel * 0.10).toFixed(2))
+        : 0;
+      const dIniRep   = parseCUDate(t.inicioReproceso);
+
+      bkt.reprocesos.push({
+        name:            t.name   || '',
+        parent:          t.parent || '',
+        op:              t.op     || '',
+        level:           nivel,
+        pts,
+        causa,
+        informativo:     causa !== 'Cliente',
+        finReproceso:    fmtDate(dFinRep),
+        inicioReproceso: dIniRep ? fmtDate(dIniRep) : null,
+      });
+    }
+  }
+
   // ── 4c. Mode C: Registro-only production ────────────────
   } else {
     for (const e of regEntries) {
@@ -307,6 +347,7 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
     const dTotal   = d.drawings.reduce(   (s, i) => s + i.score, 0);
     const apvTotal = d.approved.reduce(   (s, i) => s + i.score, 0);
     const pTotal   = d.productions.reduce((s, i) => s + i.score, 0);
+    const rTotal   = (d.reprocesos || []).reduce((s, i) => s + i.pts, 0);
     const aTotal   = parseFloat((dTotal + apvTotal).toFixed(2));    // alias
 
     const allItems  = [...d.drawings, ...d.approved, ...d.productions];
@@ -319,13 +360,15 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
       drawings:    d.drawings,
       approved:    d.approved,
       productions: d.productions,
+      reprocesos:  d.reprocesos || [],
       dTotal:      parseFloat(dTotal.toFixed(2)),
       apvTotal:    parseFloat(apvTotal.toFixed(2)),
       pTotal:      parseFloat(pTotal.toFixed(2)),
+      rTotal:      parseFloat(rTotal.toFixed(2)),
       // Aliases for dashboard backward compatibility
       approvals:   d.drawings,
       aTotal,
-      total:       parseFloat((dTotal + apvTotal + pTotal).toFixed(2)),
+      total:       parseFloat((dTotal + apvTotal + pTotal + rTotal).toFixed(2)),
       projects,
       itemCount:   uniqueSet.size,
     });
@@ -338,6 +381,7 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
   const tDraw = parseFloat(designers.reduce((s, d) => s + d.dTotal,   0).toFixed(2));
   const tApv  = parseFloat(designers.reduce((s, d) => s + d.apvTotal, 0).toFixed(2));
   const tPrd  = parseFloat(designers.reduce((s, d) => s + d.pTotal,   0).toFixed(2));
+  const tRep  = parseFloat(designers.reduce((s, d) => s + (d.rTotal || 0), 0).toFixed(2));
   const tApr  = parseFloat((tDraw + tApv).toFixed(2));     // alias (draw + apv)
 
   // Role-group means
@@ -407,6 +451,7 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
       topDesigner: designers.length ? { name: designers[0].name, total: designers[0].total } : null,
       rawDraw, rawApv, rawProd,
       rawApprob,
+      tRep,
       avgCorrections,
     },
     maxTotal:    designers.length ? designers[0].total : 1,
