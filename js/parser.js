@@ -317,12 +317,24 @@ function parseClickUpAPI(rawTasks, fieldIds) {
       const corrRaw = _cuFieldVal(t, fids.corrections);
       const iniRepRaw = _cuFieldVal(t, fids.inicioReproceso);
       const finRepRaw = _cuFieldVal(t, fids.finReproceso);
-      // Dropdown: value might be { id, name } — handle both object and string
+      // Dropdown: ClickUp API returns the selected option's orderindex (integer).
+      // Look up the human name from type_config.options; fall back to object.name
+      // or plain string for edge cases.
       const causaRaw  = (() => {
         const fid = fids.causaReproceso;
         if (!fid) return '';
         const f = (t.custom_fields || []).find(cf => cf.id === fid);
         if (!f || f.value == null) return '';
+        // Most common: integer orderindex → look up option name
+        if (typeof f.value === 'number') {
+          const opts = f.type_config?.options;
+          if (opts) {
+            const opt = opts.find(o => o.orderindex === f.value) ?? opts[f.value];
+            if (opt?.name) return opt.name;
+          }
+          return String(f.value);
+        }
+        // Object value (some ClickUp versions): { id, name } or { name, value }
         if (typeof f.value === 'object') return String(f.value.name ?? f.value.value ?? f.value.date ?? '');
         return String(f.value);
       })();
