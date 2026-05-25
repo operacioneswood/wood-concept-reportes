@@ -307,7 +307,7 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
   }
 
   // ── 4c. Mode C: Registro-only production ────────────────
-  } else {
+  else {
     for (const e of regEntries) {
       const d = parseRegDate(e.entradaRaw, year);
       if (!d || d.getMonth() + 1 !== month || d.getFullYear() !== year) continue;
