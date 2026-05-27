@@ -1397,39 +1397,20 @@ const Schedule = {
       !t.allDesigners.some(d => this.JR_LIST.includes(d))
     );
 
-    // ── Fix 3 — Deduplicate projects: each project appears exactly once.
-    // Owner Sr priority: parentSrs → item's own Sr → Sr with most items in project.
-    const projectMap = new Map(); // projName → { tasks[], ownerSr, srCounts }
+    // Deduplicate projects: each project appears under exactly one Sr.
+    // Fix 1: ownerSr is determined ONLY by the parent task's Sr assignee (parentSrs[0]).
+    // For root-level tasks (no parentId) fall back to the task's own Sr designers.
+    // If the parent task has no Sr (assigned to Jr or nobody) → ownerSr = null → "Sin Sr asignado".
+    const projectMap = new Map(); // projName → { tasks[], ownerSr }
     for (const task of needsJr) {
       const projName = task.project || '(Sin proyecto)';
       if (!projectMap.has(projName)) {
-        const ownerSr = (task.parentSrs || [])[0]
-          || task.allDesigners.find(d => this.SR_LIST.includes(d))
-          || null;
-        projectMap.set(projName, { tasks: [], ownerSr, srCounts: new Map() });
+        const ownerSr = task.parentId
+          ? ((task.parentSrs || [])[0] || null)
+          : (task.allDesigners.find(d => this.SR_LIST.includes(d)) || null);
+        projectMap.set(projName, { tasks: [], ownerSr });
       }
-      const entry = projectMap.get(projName);
-      entry.tasks.push(task);
-      // Fill ownerSr if still unknown
-      if (!entry.ownerSr) {
-        entry.ownerSr = (task.parentSrs || [])[0]
-          || task.allDesigners.find(d => this.SR_LIST.includes(d))
-          || null;
-      }
-      // Track per-Sr item counts for tiebreaking
-      for (const d of task.allDesigners) {
-        if (this.SR_LIST.includes(d))
-          entry.srCounts.set(d, (entry.srCounts.get(d) || 0) + 1);
-      }
-    }
-    // Final pass: pick the Sr with the most items for projects still without an owner
-    for (const entry of projectMap.values()) {
-      if (!entry.ownerSr && entry.srCounts.size > 0) {
-        let max = 0;
-        for (const [sr, cnt] of entry.srCounts) {
-          if (cnt > max) { max = cnt; entry.ownerSr = sr; }
-        }
-      }
+      projectMap.get(projName).tasks.push(task);
     }
 
     // Bucket deduplicated projects by owning Sr
@@ -1443,6 +1424,12 @@ const Schedule = {
         noOwnerProjects.push({ projName, tasks: entry.tasks });
       }
     }
+
+    // Fix 2 helper: compute Sr initials from display name (e.g. "Ana G" → "AG", "Johana Ruiz" → "JR")
+    const getSrInitials = name => {
+      if (!name) return '';
+      return name.trim().split(/\s+/).map(w => (w[0] || '').toUpperCase()).join('');
+    };
 
     // ── Render each draggable item for the board ─────────────
     const renderDragItem = (task, sr) => {
@@ -1458,6 +1445,15 @@ const Schedule = {
       const srBtn = (!isDraft && sr && !task.hasOwnDesigners)
         ? `<button class="asign-quick-sr-btn" data-task-id="${esc(task.taskId)}" data-sr="${esc(sr)}" title="Asignar a ${esc(sr)}">+ Sr</button>`
         : '';
+      // Fix 4: show current Sr assignee badge when the item is assigned to a different Sr
+      // than the project owner — so coordinator can see who currently has it.
+      const currentSrAssignee = task.hasOwnDesigners
+        ? task.allDesigners.find(d => this.SR_LIST.includes(d))
+        : null;
+      const showAssigneeBadge = currentSrAssignee && currentSrAssignee !== sr;
+      const assigneeBadge = showAssigneeBadge
+        ? `<span class="asign-current-assignee-badge">${esc(currentSrAssignee)}</span>`
+        : '';
       return `
         <div class="asign-drag-item${isDraft ? ' draft-assigned' : ''}"
              draggable="true"
@@ -1472,7 +1468,7 @@ const Schedule = {
             <div class="asign-drag-meta">
               <span class="asign-prow-niv">${esc(niv)}</span>
               <span class="asign-prow-status" style="background:${sbg};color:${sfg}">${esc(slabel)}</span>
-              ${jrBadge}${srBtn}
+              ${assigneeBadge}${jrBadge}${srBtn}
             </div>
           </div>
         </div>`;
@@ -1485,12 +1481,21 @@ const Schedule = {
         this._asignDraft.has(t.taskId) ||
         t.allDesigners.some(d => this.JR_LIST.includes(d))
       );
+      // Fix 2: Sr initials badge — tinted with the Sr's color at low opacity
+      const initials  = getSrInitials(sr);
+      const srColor   = sr ? (DESIGNER_COLORS[sr] || '#888888') : null;
+      const initialsBadge = (initials && srColor)
+        ? `<span class="sr-initials-badge" style="background:${srColor}18;border-color:${srColor}40;color:${srColor}">${esc(initials)}</span>`
+        : '';
+      // Fix 5: item count = number of assignable items that appear in the dropdown
+      const assignableCount = tasks.length;
       return `
         <div class="asign-sr-proj-group${allCovered ? ' proj-group-covered' : ''}" data-group-id="${esc(groupId)}">
           <div class="asign-sr-proj-row">
             <span class="asign-sr-proj-chevron">▶</span>
             <span class="asign-sr-proj-name">${esc(proj.projName)}</span>
-            <span class="asign-sr-proj-count">${tasks.length} ítem${tasks.length !== 1 ? 's' : ''}</span>
+            ${initialsBadge}
+            <span class="asign-sr-proj-count">${assignableCount} ítem${assignableCount !== 1 ? 's' : ''}</span>
           </div>
           <div class="asign-sr-proj-items" style="display:none">
             ${tasks.map(t => renderDragItem(t, sr)).join('')}

@@ -2116,6 +2116,32 @@ body {
   background: var(--card);
 }
 
+/* Fix 2 — Sr initials badge on project rows */
+.sr-initials-badge {
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+/* Fix 4 — Current assignee badge on cross-Sr items */
+.asign-current-assignee-badge {
+  font-size: 10px;
+  font-weight: 500;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: #374151;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 /* Draggable items */
 .asign-drag-item {
   display: flex;
