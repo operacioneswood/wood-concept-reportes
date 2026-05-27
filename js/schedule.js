@@ -1538,11 +1538,12 @@ const Schedule = {
           </select>` : '';
       return `
         <div class="asign-drag-item${isDraft ? ' draft-assigned' : ''} asign-unassigned-item"
-             draggable="false"
+             draggable="true"
              data-task-id="${esc(task.taskId)}"
              data-task-name="${esc(task.name)}"
              data-nivel="${task.nivel || 0}"
              data-sr="">
+          <span class="asign-drag-handle">⠿</span>
           <div class="asign-drag-info">
             <div class="asign-drag-name">${esc(task.name)}${opStr ? ` <span class="asign-prow-op">${esc(opStr)}</span>` : ''}</div>
             <div class="asign-drag-proj">${esc(task.project || '—')}</div>
@@ -1857,9 +1858,10 @@ const Schedule = {
   _buildDraftBar() {
     const changes = Array.from(this._asignDraft.values());
     const list = changes.map(c => {
-      const typeLabel = c.assignType === 'sr' ? 'Sr' : 'Jr';
+      const typeLabel  = c.assignType === 'sr' ? 'Sr' : 'Jr';
+      const fromLabel  = c.fromSr === '' ? ' <span style="opacity:.5;font-size:10px">(sin asignar)</span>' : '';
       return `<span class="asign-draft-chip">
-        <b>${esc(c.assignName)}</b> <span style="opacity:.6;font-size:10px">${typeLabel}</span> ← ${esc(c.taskName)}
+        <b>${esc(c.assignName)}</b> <span style="opacity:.6;font-size:10px">${typeLabel}</span> ← ${esc(c.taskName)}${fromLabel}
         <button class="asign-chip-undo" data-task-id="${esc(c.taskId)}" title="Deshacer este ítem">✕</button>
       </span>`;
     }).join('');
