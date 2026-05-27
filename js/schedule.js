@@ -1391,38 +1391,51 @@ const Schedule = {
         </div>`;
     }).join('<div class="asign-jr-panel-divider"></div>');
 
-    // ── Section 2: Items needing a Jr ────────────────────────
-    // All tasks (from _apiTasks) that do NOT yet have a Jr assigned
-    const needsJr = this._apiTasks.filter(t =>
+    // ── Section 2: Item grouping ──────────────────────────────────────────
+    // Universe: all tasks without a Jr assigned (items with Jr stay in Section 1 only).
+    const sec2Universe = this._apiTasks.filter(t =>
       !t.allDesigners.some(d => this.JR_LIST.includes(d))
     );
 
-    // Deduplicate projects: each project appears under exactly one Sr.
-    // Fix 1: ownerSr is determined ONLY by the parent task's Sr assignee (parentSrs[0]).
-    // For root-level tasks (no parentId) fall back to the task's own Sr designers.
-    // If the parent task has no Sr (assigned to Jr or nobody) → ownerSr = null → "Sin Sr asignado".
-    const projectMap = new Map(); // projName → { tasks[], ownerSr }
-    for (const task of needsJr) {
-      const projName = task.project || '(Sin proyecto)';
-      if (!projectMap.has(projName)) {
-        const ownerSr = task.parentId
-          ? ((task.parentSrs || [])[0] || null)
-          : (task.allDesigners.find(d => this.SR_LIST.includes(d)) || null);
-        projectMap.set(projName, { tasks: [], ownerSr });
+    // Bucket A — directly assigned to a specific Sr (hasOwnDesigners=true, Sr in allDesigners)
+    const srItemsMap = new Map(); // sr → task[]
+    for (const sr of this.SR_LIST) srItemsMap.set(sr, []);
+
+    // Bucket B — no own assignee (hasOwnDesigners false/empty) → "Próximos a entrar"
+    const unassignedItems = [];
+
+    for (const task of sec2Universe) {
+      const directSr = task.hasOwnDesigners
+        ? task.allDesigners.find(d => this.SR_LIST.includes(d))
+        : null;
+      if (directSr && srItemsMap.has(directSr)) {
+        srItemsMap.get(directSr).push(task);
+      } else {
+        unassignedItems.push(task);
       }
-      projectMap.get(projName).tasks.push(task);
     }
 
-    // Bucket deduplicated projects by owning Sr
-    const bySr = {};
-    for (const sr of this.SR_LIST) bySr[sr] = [];
-    const noOwnerProjects = [];
-    for (const [projName, entry] of projectMap) {
-      if (entry.ownerSr && bySr[entry.ownerSr]) {
-        bySr[entry.ownerSr].push({ projName, tasks: entry.tasks });
-      } else {
-        noOwnerProjects.push({ projName, tasks: entry.tasks });
+    // Group Sr-assigned items by project (per Sr)
+    const srProjectsMap = new Map(); // sr → [{ projName, tasks[] }]
+    for (const sr of this.SR_LIST) {
+      const projMap = new Map();
+      for (const task of srItemsMap.get(sr) || []) {
+        const pn = task.project || '(Sin proyecto)';
+        if (!projMap.has(pn)) projMap.set(pn, []);
+        projMap.get(pn).push(task);
       }
+      srProjectsMap.set(sr, [...projMap.entries()].map(([projName, tasks]) => ({ projName, tasks })));
+    }
+
+    // Group unassigned items by project; ownerSr from parent task (for the initials badge)
+    const unassignedProjectMap = new Map(); // projName → { tasks[], ownerSr }
+    for (const task of unassignedItems) {
+      const pn = task.project || '(Sin proyecto)';
+      if (!unassignedProjectMap.has(pn)) {
+        const ownerSr = task.parentId ? ((task.parentSrs || [])[0] || null) : null;
+        unassignedProjectMap.set(pn, { tasks: [], ownerSr });
+      }
+      unassignedProjectMap.get(pn).tasks.push(task);
     }
 
     // Fix 2 helper: compute Sr initials from display name (e.g. "Ana G" → "AG", "Johana Ruiz" → "JR")
@@ -1503,14 +1516,51 @@ const Schedule = {
         </div>`;
     };
 
+    // ── Render an unassigned item with an [Asignar ▾] dropdown ────────────
+    const renderUnassignedItem = (task) => {
+      const draft   = this._asignDraft.get(task.taskId);
+      const isDraft = !!draft;
+      const niv     = task.nivel !== null ? `N${fmtNum(task.nivel)}` : '—';
+      const opStr   = task.op ? `OP ${task.op}` : '';
+      const [sbg, sfg] = STATUS_COLORS[task.status] || ['#f3f4f6', '#374151'];
+      const slabel  = STATUS_LABEL[task.status] || task.status;
+      const draftBadge = isDraft
+        ? `<span class="asign-draft-jr-badge">→ ${esc(draft.assignName)}</span>` : '';
+      const srOpts = this.SR_LIST.map(s =>
+        `<option value="${esc(s)}" data-type="sr">${esc(s)}</option>`).join('');
+      const jrOpts = this.JR_LIST.map(j =>
+        `<option value="${esc(j)}" data-type="jr">${esc(j)} (Jr)</option>`).join('');
+      const assignDropdown = !isDraft
+        ? `<select class="asign-assign-dropdown" data-task-id="${esc(task.taskId)}">
+            <option value="">Asignar ▾</option>
+            <optgroup label="Senior">${srOpts}</optgroup>
+            <optgroup label="Junior">${jrOpts}</optgroup>
+          </select>` : '';
+      return `
+        <div class="asign-drag-item${isDraft ? ' draft-assigned' : ''} asign-unassigned-item"
+             draggable="false"
+             data-task-id="${esc(task.taskId)}"
+             data-task-name="${esc(task.name)}"
+             data-nivel="${task.nivel || 0}"
+             data-sr="">
+          <div class="asign-drag-info">
+            <div class="asign-drag-name">${esc(task.name)}${opStr ? ` <span class="asign-prow-op">${esc(opStr)}</span>` : ''}</div>
+            <div class="asign-drag-proj">${esc(task.project || '—')}</div>
+            <div class="asign-drag-meta">
+              <span class="asign-prow-niv">${esc(niv)}</span>
+              <span class="asign-prow-status" style="background:${sbg};color:${sfg}">${esc(slabel)}</span>
+              ${draftBadge}${assignDropdown}
+            </div>
+          </div>
+        </div>`;
+    };
+
     // Store Sr task map so _updateSrBar can recalculate remaining nivel reactively
     this._srTasks = new Map();
     for (const sr of this.SR_LIST) {
-      this._srTasks.set(sr, bySr[sr].flatMap(p => p.tasks));
+      this._srTasks.set(sr, srItemsMap.get(sr) || []);
     }
-    if (noOwnerProjects.length > 0) {
-      this._srTasks.set('', noOwnerProjects.flatMap(p => p.tasks));
-    }
+    this._srTasks.set('', unassignedItems); // '' = Próximos a entrar
 
     // Helper: remaining unassigned nivel for an Sr (deduct already-drafted items)
     const srRemaining = tasks => {
@@ -1520,12 +1570,57 @@ const Schedule = {
       return tasks.reduce((s, t) => s + (t.nivel || 0), 0) - drafted;
     };
 
+    // ── "Próximos a entrar" card — all unassigned items ──────────────────
+    const proximosCard = unassignedItems.length > 0 ? (() => {
+      const remaining = srRemaining(unassignedItems);
+      const barWidth  = Math.min(100, remaining / 20 * 100);
+      const barColor  = remaining <= 8 ? '#dcfce7' : remaining <= 15 ? '#fef3c7' : '#fee2e2';
+      const projGroups = [...unassignedProjectMap.entries()].map(([projName, entry], pi) => {
+        const { tasks, ownerSr } = entry;
+        const initials    = getSrInitials(ownerSr);
+        const srColor     = ownerSr ? (DESIGNER_COLORS[ownerSr] || '#888888') : null;
+        const initialsBadge = (initials && srColor)
+          ? `<span class="sr-initials-badge" style="background:${srColor}18;border-color:${srColor}40;color:${srColor}">${esc(initials)}</span>`
+          : '';
+        const count      = tasks.length;
+        const groupId    = `proximos-p${pi}`;
+        const allCovered = tasks.length > 0 && tasks.every(t => this._asignDraft.has(t.taskId));
+        return `
+          <div class="asign-sr-proj-group${allCovered ? ' proj-group-covered' : ''}" data-group-id="${esc(groupId)}">
+            <div class="asign-sr-proj-row">
+              <span class="asign-sr-proj-chevron">▶</span>
+              <span class="asign-sr-proj-name">${esc(projName)}</span>
+              ${initialsBadge}
+              <span class="asign-sr-proj-count">${count} ítem${count !== 1 ? 's' : ''}</span>
+            </div>
+            <div class="asign-sr-proj-items" style="display:none">
+              ${tasks.map(t => renderUnassignedItem(t)).join('')}
+            </div>
+          </div>`;
+      }).join('');
+      return `
+        <div class="asign-sr-boardcard asign-proximos-card" data-sr="">
+          <div class="asign-sr-boardcard-hdr">
+            <span class="sched-pair-dot" style="background:#a09890"></span>
+            <span class="asign-sr-boardcard-name">Próximos a entrar — Sin asignar</span>
+            <span class="asign-sr-boardcard-sigma" id="asign-sr-sigma-sr-none">Σ ${fmtNum(remaining)} pts</span>
+          </div>
+          <div class="asign-sr-loadbar-wrap">
+            <div class="asign-sr-loadbar" id="asign-sr-bar-sr-none"
+                 style="width:${barWidth}%;background:${barColor};transition:width 0.4s ease,background-color 0.3s ease"></div>
+          </div>
+          <div class="asign-sr-boardcard-items">
+            ${projGroups}
+          </div>
+        </div>`;
+    })() : '';
+
     // ── Sr board cards (left panel) ────────────────────────────
     const srBoardCards = [
       ...this.SR_LIST.map((sr, srIdx) => {
-        const projList = bySr[sr];
+        const projList  = srProjectsMap.get(sr) || [];
         if (!projList.length) return '';
-        const allTasks = projList.flatMap(p => p.tasks);
+        const allTasks  = projList.flatMap(p => p.tasks);
         const srId      = `sr${srIdx}`;
         const remaining = srRemaining(allTasks);
         const barWidth  = Math.min(100, remaining / 20 * 100);
@@ -1547,27 +1642,7 @@ const Schedule = {
             </div>
           </div>`;
       }),
-      noOwnerProjects.length > 0 ? (() => {
-        const allTasks  = noOwnerProjects.flatMap(p => p.tasks);
-        const remaining = srRemaining(allTasks);
-        const barWidth  = Math.min(100, remaining / 20 * 100);
-        const barColor  = remaining <= 8 ? '#dcfce7' : remaining <= 15 ? '#fef3c7' : '#fee2e2';
-        return `
-          <div class="asign-sr-boardcard" data-sr="">
-            <div class="asign-sr-boardcard-hdr">
-              <span class="sched-pair-dot" style="background:#a09890"></span>
-              <span class="asign-sr-boardcard-name">Sin asignar</span>
-              <span class="asign-sr-boardcard-sigma" id="asign-sr-sigma-sr-none">Σ ${fmtNum(remaining)} pts</span>
-            </div>
-            <div class="asign-sr-loadbar-wrap">
-              <div class="asign-sr-loadbar" id="asign-sr-bar-sr-none"
-                   style="width:${barWidth}%;background:${barColor};transition:width 0.4s ease,background-color 0.3s ease"></div>
-            </div>
-            <div class="asign-sr-boardcard-items">
-              ${noOwnerProjects.map((p, pi) => renderSrProjectGroup(p, null, `sr-none-p${pi}`)).join('')}
-            </div>
-          </div>`;
-      })() : '',
+      proximosCard,
     ].filter(Boolean).join('');
 
     // ── Jr drop cards (right column) ──────────────────────────
@@ -1681,7 +1756,7 @@ const Schedule = {
         <div class="asign-jr-panel">${jrCardsHtml}</div>
 
         <div class="asign-section-title" style="margin-top:40px">ASIGNAR ÍTEMS</div>
-        ${needsJr.length > 0
+        ${sec2Universe.length > 0
           ? boardHtml
           : `<p class="asign-empty-msg" style="padding:16px 0">Todos los ítems activos tienen Jr asignado. 🎉</p>`
         }
@@ -2054,6 +2129,68 @@ const Schedule = {
         this._refreshDraftBar(container);
       }
     });
+
+    // ── Dropdown assignment for "Próximos a entrar" unassigned items ──────
+    container.addEventListener('change', e => {
+      const sel = e.target.closest('.asign-assign-dropdown');
+      if (!sel) return;
+      const taskId     = sel.dataset.taskId;
+      const selOpt     = sel.options[sel.selectedIndex];
+      const assignName = sel.value;
+      const assignType = selOpt?.dataset?.type || 'sr';
+      if (!taskId || !assignName) { sel.selectedIndex = 0; return; }
+      if (this._asignDraft.has(taskId)) { sel.selectedIndex = 0; return; }
+      const task = this._apiTasks.find(t => t.taskId === taskId);
+      if (!task) { sel.selectedIndex = 0; return; }
+
+      const userId = this._userIdMap[assignName] || null;
+      this._asignDraft.set(taskId, {
+        taskId,
+        taskName:     task.name,
+        assignType,
+        assignName,
+        assignUserId: userId,
+        nivel:        task.nivel || 0,
+        fromSr:       '',
+      });
+
+      // Mark the source item as draft-assigned and swap dropdown for a badge
+      const itemEl = sel.closest('.asign-drag-item');
+      if (itemEl) {
+        itemEl.classList.add('draft-assigned');
+        sel.remove();
+        const badge = document.createElement('span');
+        badge.className = 'asign-draft-jr-badge';
+        badge.textContent = `→ ${assignName}`;
+        itemEl.querySelector('.asign-drag-meta')?.appendChild(badge);
+      }
+
+      // If Jr selected: also append the item to that Jr's dropzone
+      if (assignType === 'jr') {
+        const jrIdx = this.JR_LIST.indexOf(assignName);
+        if (jrIdx >= 0) {
+          const dz = container.querySelector(`#asign-dropzone-jr${jrIdx}`);
+          if (dz) {
+            dz.querySelector('.asign-dropzone-hint')?.remove();
+            const niv = task.nivel !== null ? `N${fmtNum(task.nivel)}` : '—';
+            const row = document.createElement('div');
+            row.className      = 'asign-dropzone-item';
+            row.dataset.taskId = taskId;
+            row.innerHTML = `
+              <span class="asign-dropzone-item-name">${esc(task.name)}</span>
+              <span class="asign-dropzone-item-niv">${esc(niv)}</span>
+              <button class="asign-dropzone-undo" data-task-id="${esc(taskId)}" title="Deshacer">✕</button>`;
+            dz.appendChild(row);
+            this._updateJrBar(assignName, container);
+            this._updateBoardChips(assignName, container);
+          }
+        }
+      }
+
+      this._updateSrBar('', container); // refresh Próximos sigma/bar
+      this._updateBalance(container);
+      this._refreshDraftBar(container);
+    });
   },
 
   _updateJrBar(jr, container) {
@@ -2198,21 +2335,23 @@ const Schedule = {
     if (srcItem) {
       srcItem.classList.remove('draft-assigned');
       srcItem.querySelector('.asign-draft-jr-badge')?.remove();
-      // Re-inject the +Sr button when undoing a Sr assignment of an unassigned item
-      if (isSrAssign) {
-        const task = this._apiTasks.find(t => t.taskId === taskId);
-        const meta = srcItem.querySelector('.asign-drag-meta');
-        if (task && !task.hasOwnDesigners && assignName && meta
-            && !meta.querySelector('.asign-quick-sr-btn')) {
-          const btn = document.createElement('button');
-          btn.className        = 'asign-quick-sr-btn';
-          btn.dataset.taskId   = taskId;
-          btn.dataset.sr       = assignName;
-          btn.title            = `Asignar a ${assignName}`;
-          btn.textContent      = '+ Sr';
-          meta.appendChild(btn);
-          // No explicit listener needed — delegated click handler in _bindBoard handles it
-        }
+      // Re-inject the [Asignar ▾] dropdown when undoing an assignment from a Próximos unassigned item
+      const undoTask = this._apiTasks.find(t => t.taskId === taskId);
+      const meta = srcItem.querySelector('.asign-drag-meta');
+      if (undoTask && !undoTask.hasOwnDesigners && meta
+          && !meta.querySelector('.asign-assign-dropdown')) {
+        const srOpts = this.SR_LIST.map(s =>
+          `<option value="${esc(s)}" data-type="sr">${esc(s)}</option>`).join('');
+        const jrOpts = this.JR_LIST.map(j =>
+          `<option value="${esc(j)}" data-type="jr">${esc(j)} (Jr)</option>`).join('');
+        const newSel = document.createElement('select');
+        newSel.className      = 'asign-assign-dropdown';
+        newSel.dataset.taskId = taskId;
+        newSel.innerHTML = `<option value="">Asignar ▾</option>
+          <optgroup label="Senior">${srOpts}</optgroup>
+          <optgroup label="Junior">${jrOpts}</optgroup>`;
+        meta.appendChild(newSel);
+        // The delegated 'change' handler in _bindBoard picks this up automatically
       }
     }
 
