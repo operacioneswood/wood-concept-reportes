@@ -1452,7 +1452,13 @@ const Schedule = {
         if (!projMap.has(pn)) projMap.set(pn, []);
         projMap.get(pn).push(task);
       }
-      srProjectsMap.set(sr, [...projMap.entries()].map(([projName, tasks]) => ({ projName, tasks })));
+      srProjectsMap.set(sr, [...projMap.entries()].map(([projName, tasks]) => ({
+        projName,
+        tasks,
+        // ownerSr = Sr assigned to the PARENT project task, not the item's direct assignee.
+        // Use parentSrs[0] from the first task — all tasks in the same project share a parent.
+        ownerSr: (tasks[0]?.parentSrs || [])[0] || null,
+      })));
     }
 
     // Group unassigned items by project; ownerSr from parent task (for the initials badge)
@@ -1522,9 +1528,11 @@ const Schedule = {
         this._asignDraft.has(t.taskId) ||
         t.allDesigners.some(d => this.JR_LIST.includes(d))
       );
-      // Fix 2: Sr initials badge — tinted with the Sr's color at low opacity
-      const initials  = getSrInitials(sr);
-      const srColor   = sr ? (DESIGNER_COLORS[sr] || '#888888') : null;
+      // Fix 2: Sr initials badge — tinted with the owner's color.
+      // ownerSr = Sr of the PARENT PROJECT TASK, never the card's Sr (which is the item assignee).
+      const ownerSr   = proj.ownerSr || null;
+      const initials  = getSrInitials(ownerSr);
+      const srColor   = ownerSr ? (DESIGNER_COLORS[ownerSr] || '#888888') : null;
       const initialsBadge = (initials && srColor)
         ? `<span class="sr-initials-badge" style="background:${srColor}18;border-color:${srColor}40;color:${srColor}">${esc(initials)}</span>`
         : '';
