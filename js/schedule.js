@@ -1318,6 +1318,34 @@ const Schedule = {
     this._statusColors = STATUS_COLORS;
     this._statusOrder  = STATUS_ORDER;
 
+    // ── Initials badge helpers ─────────────────────────────────
+    // Source for Sr: always task.parentSrs[0] (parent task's assignee),
+    // NEVER task.allDesigners.find(Sr) which could be a different Sr with items inside.
+    //
+    // "Johana Ruiz" → "JR"  |  "Ana G" → "AG"  |  "Karla Díaz" → "KD"
+    const _getInitials = name =>
+      (name || '').split(' ').map(w => w[0]?.toUpperCase() || '').join('');
+
+    // Convert #rrggbb hex to rgba(r,g,b,a) for tinted backgrounds/borders.
+    const _hexToRgba = (hex, a) => {
+      const h = (hex || '#888888').replace('#', '');
+      const r = parseInt(h.substring(0, 2), 16) || 0;
+      const g = parseInt(h.substring(2, 4), 16) || 0;
+      const b = parseInt(h.substring(4, 6), 16) || 0;
+      return `rgba(${r},${g},${b},${a})`;
+    };
+
+    // Render a Sr initials badge coloured with the owner's designer colour.
+    // Returns '' when sr is falsy so nothing is rendered.
+    const _srBadge = sr => {
+      if (!sr) return '';
+      const initials = _getInitials(sr);
+      const color    = DESIGNER_COLORS[sr] || '#888';
+      const bg       = _hexToRgba(color, 0.10);
+      const border   = _hexToRgba(color, 0.35);
+      return `<span class="asign-sr-initials-badge" style="background:${bg};color:${color};border-color:${border}" title="${esc(sr)}">${esc(initials)}</span>`;
+    };
+
     // ── Section 1: Jr status panel (horizontal, 3 columns) ───
     const jrCardsHtml = this.JR_LIST.map(jr => {
       const load  = jrLoad[jr];
@@ -1335,7 +1363,7 @@ const Schedule = {
               <span class="asign-jr-item-name">${esc(i.name)}</span>
               ${opStr ? `<span class="asign-jr-item-op">${esc(opStr)}</span>` : ''}
             </div>
-            <div class="asign-jr-item-proj">${esc(i.project || '—')}</div>
+            <div class="asign-jr-item-proj">${esc(i.project || '—')}${_srBadge((i.parentSrs || [])[0] || null)}</div>
             <div class="asign-jr-item-meta">
               <span class="asign-jr-niv-badge">${esc(niv)}</span>
               <span class="asign-jr-status-badge" style="background:${sbg};color:${sfg}">${esc(slabel)}</span>
@@ -1477,7 +1505,7 @@ const Schedule = {
           <span class="asign-drag-handle">⠿</span>
           <div class="asign-drag-info">
             <div class="asign-drag-name">${esc(task.name)}${opStr ? ` <span class="asign-prow-op">${esc(opStr)}</span>` : ''}</div>
-            <div class="asign-drag-proj">${esc(task.project || '—')}</div>
+            <div class="asign-drag-proj">${esc(task.project || '—')}${_srBadge((task.parentSrs || [])[0] || null)}</div>
             <div class="asign-drag-meta">
               <span class="asign-prow-niv">${esc(niv)}</span>
               <span class="asign-prow-status" style="background:${sbg};color:${sfg}">${esc(slabel)}</span>

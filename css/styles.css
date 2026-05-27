@@ -1788,6 +1788,24 @@ body {
 .asign-proj-count { font-size: 11.5px; color: var(--faint); white-space: nowrap; }
 .asign-proj-items { }
 
+/* Sr owner initials badge — always uses the PARENT task's Sr colour, never the item assignee's */
+.asign-sr-initials-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1.5px solid;
+  vertical-align: middle;
+  margin-left: 5px;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+  line-height: 14px;
+  flex-shrink: 0;
+}
+
 /* Pending item rows */
 .asign-pending-row {
   display: flex;
