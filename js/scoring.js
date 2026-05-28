@@ -193,29 +193,6 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
       const hasApv  = inMonth(dApv);
       const hasDraw = inMonth(dFin);
 
-      // ── TEMP DEBUG — remove after verification ──────────────────
-      if ((t.name || '').toLowerCase().includes('mueble divisorio')) {
-        console.group(`=== DEBUG "${t.name}" (${MONTH_NAMES[month]} ${year}) ===`);
-        console.log('op:', t.op, '| nivel:', t.nivel, '| assignee:', t.assignee);
-        console.log('finDibujo  raw:', t.finDibujo,  '→ parsed:', dFin, '→ inMonth:', hasDraw);
-        console.log('aprobado   raw:', t.aprobado,    '→ parsed:', dApv, '→ inMonth:', hasApv);
-        console.log('envioFabr  raw:', t.envio,       '→ parsed:', dEnv, '→ inMonth:', hasProd);
-        if (!hasProd && !hasApv && !hasDraw) {
-          console.log('→ SKIP — ninguna fecha de completación cae en este mes');
-        } else {
-          const _phase  = hasProd ? 'produccion' : hasApv ? 'aprobado' : 'dibujo';
-          const _prev   = getHighestPhaseInPrev(t.op);
-          const _scored = t.nivel !== null ? scoreForMonth(t.nivel, _phase, t.op) : null;
-          console.log('→ thisMonthPhase:', _phase);
-          console.log('→ prevHighest:', _prev.phase, '| prevMonth:', _prev.monthLabel);
-          console.log('→ savedSnapsBeforeThisMonth:', allSavedMonths.filter(
-            s => s.year < year || (s.year === year && s.month < month)).length);
-          console.log('→ scored:', _scored);
-        }
-        console.groupEnd();
-      }
-      // ── END TEMP DEBUG ───────────────────────────────────────────
-
       if (!hasProd && !hasApv && !hasDraw) continue;  // no activity this month
 
       // Highest phase reached this month
