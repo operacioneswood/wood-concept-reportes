@@ -341,6 +341,29 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
     }
   }
 
+  // ── 4d. Cross-phase dedup ─────────────────────────────────
+  // If the same item (matched by name+parent) appears in multiple phase columns
+  // for the same designer — typically a ClickUp parent task (no OP, carries the
+  // aprobado date) paired with its sub-task (has OP, carries finDibujo) — keep
+  // only the entry with the highest phase and discard the lower-phase duplicate.
+  const CROSS_RANK = { dibujo: 1, aprobado: 2, produccion: 3 };
+  for (const [, d] of dMap) {
+    const npKey = item => `${item.name || ''}||${item.parent || ''}`;
+    const bestRank = new Map();
+    for (const [phase, arr] of [
+      ['dibujo', d.drawings], ['aprobado', d.approved], ['produccion', d.productions]
+    ]) {
+      const r = CROSS_RANK[phase];
+      for (const item of arr) {
+        const k = npKey(item);
+        if (r > (bestRank.get(k) || 0)) bestRank.set(k, r);
+      }
+    }
+    d.drawings    = d.drawings.filter(    item => bestRank.get(npKey(item)) === CROSS_RANK.dibujo);
+    d.approved    = d.approved.filter(    item => bestRank.get(npKey(item)) === CROSS_RANK.aprobado);
+    d.productions = d.productions.filter( item => bestRank.get(npKey(item)) === CROSS_RANK.produccion);
+  }
+
   // ── 5. Aggregate per-designer totals ─────────────────────
   const designers = [];
   for (const [name, d] of dMap) {
