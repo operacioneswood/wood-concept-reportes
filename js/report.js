@@ -499,7 +499,7 @@ const Report = {
     };
 
     // ── Classify into 3 categories ─────────────────────────
-    const cat1 = [], cat2 = [], cat3 = [];
+    const cat1 = [], cat2 = [];
 
     for (const [key, h] of history) {
       const live       = getLive(h.op, h.name, h.project);
@@ -549,20 +549,6 @@ const Report = {
         }
       }
 
-      // ─── Cat 3: Producción demorada ────────────────────────
-      if (h.phases.has('produccion')) {
-        const mr = h.mostRecent['produccion'];
-        if (mr) {
-          const monthsDiff = (year - mr.year) * 12 + (month - mr.month);
-          if (monthsDiff > 1 && live && !COMPLETED.has(liveStatus)) {
-            const dateRaw = live?.envio || mr.date || null;
-            cat3.push({
-              ...h, key, live, liveStatus, dateRaw, monthsDiff,
-              stuckSince: `${MONTH_NAMES[mr.month]} ${mr.year}`,
-            });
-          }
-        }
-      }
     }
 
     // ── Cat 4: Reprocesos pendientes ───────────────────────
@@ -591,7 +577,7 @@ const Report = {
       });
     }
 
-    const total = cat1.length + cat2.length + cat3.length + cat4.length;
+    const total = cat1.length + cat2.length + cat4.length;
 
     // ── Status badge class (shared by per-designer + global) ──
     const sbClass = rawStatus => {
@@ -674,8 +660,7 @@ const Report = {
 
       const dCat1 = cat1.filter(e => e.designer === d.name);
       const dCat2 = cat2.filter(e => e.designer === d.name);
-      const dCat3 = cat3.filter(e => e.designer === d.name);
-      const dTotal = dCat1.length + dCat2.length + dCat3.length;
+      const dTotal = dCat1.length + dCat2.length;
 
       if (!dTotal) { slot.innerHTML = ''; continue; }
 
@@ -697,7 +682,6 @@ const Report = {
           </div>
           ${mkDGroup(dCat1, 1, '🟡', 'Estancado en dibujo')}
           ${mkDGroup(dCat2, 2, '🟠', 'Aprobado sin producción')}
-          ${mkDGroup(dCat3, 3, '🔴', 'Producción demorada')}
         </div>`;
     }
 
@@ -714,7 +698,6 @@ const Report = {
         <div id="alerts-body">
           ${mkGroup(cat1, 1, '🟡', 'Estancado en dibujo')}
           ${mkGroup(cat2, 2, '🟠', 'Aprobado sin producción')}
-          ${mkGroup(cat3, 3, '🔴', 'Producción demorada')}
           ${cat4.length ? `<div class="alert-group"><div class="alert-group-hdr"><span class="alert-group-emoji">⚠</span><span class="alert-group-title">Reprocesos pendientes</span><span class="alerts-badge">${cat4.length}</span></div><div class="alert-rows">${cat4.map(mkRow4).join('')}</div></div>` : ''}
         </div>
       </div>`;
