@@ -241,12 +241,15 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
         unconfirmed:   thisMonthPhase === 'produccion' && mode === 'B' && !!t.op && unconfirmedOPs.has(t.op),
         fromRegOnly:   false,
         corrections:   t.corrections    || 0,
-        // Process-time date fields (passed straight from parsed ClickUp task)
+        // Process-time date fields (passed straight from parsed ClickUp task).
+        // fechaInicio is only meaningful when finDibujo also falls in this month
+        // (thisMonthPhase === 'dibujo'), so the ini→fin drawing duration is only
+        // measured for items whose drawing actually completed this period.
         finDibujo:       t.finDibujo       || null,
         aprobado:        t.aprobado        || null,
         envioAprobacion: t.envioAprobacion || null,
         envioFabrica:    t.envio           || null,   // "envio" is the factory-send field
-        fechaInicio:     null,                        // not available in scoring context
+        fechaInicio:     thisMonthPhase === 'dibujo' ? (t.fechaInicio || null) : null,
       });
 
       if      (thisMonthPhase === 'produccion') bkt.productions.push(item);

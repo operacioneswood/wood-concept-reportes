@@ -346,6 +346,7 @@ function parseClickUpAPI(rawTasks, fieldIds) {
         op:              opVal,
         nivel:           (nivel !== null && !isNaN(nivel)) ? nivel : null,
         assignee,
+        fechaInicio:     tsToDateStr(t.start_date),   // task start date (for drawing-duration calc)
         finDibujo:       tsToDateStr(finRaw),
         aprobado:        tsToDateStr(apvRaw),
         envioAprobacion: tsToDateStr(envARaw),
