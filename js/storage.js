@@ -173,6 +173,25 @@ function reportToStorage(report, mode) {
     aprob:    [...(ua.drawings || []), ...(ua.approved || [])].map(itemToStorage),
   };
 
+  // ── Process-time aggregates ──────────────────────────────
+  // Collect all items from designers + unassigned for process time calculation.
+  // itemToStorage is called AFTER this, so we work from the in-memory items directly.
+  const _allItemsForTimes = [];
+  for (const d of report.designers) {
+    _allItemsForTimes.push(...d.drawings, ...d.approved, ...d.productions);
+  }
+  const _ua = report.unassigned || {};
+  _allItemsForTimes.push(...(_ua.drawings||[]), ...(_ua.approved||[]), ...(_ua.productions||[]));
+  stored.processTimes = calcProcessTimes(_allItemsForTimes);
+
+  stored.processTimesByDesigner = {};
+  for (const d of report.designers) {
+    const dItems = [...d.drawings, ...d.approved, ...d.productions];
+    if (dItems.length) {
+      stored.processTimesByDesigner[d.name] = calcProcessTimes(dItems);
+    }
+  }
+
   // Validation summary (Mode B)
   if (report.validation) {
     const v = report.validation;
@@ -220,7 +239,96 @@ function itemToStorage(item) {
     fromRegOnly:   item.fromRegOnly    || false,
     unconfirmed:   item.unconfirmed    || false,
     corrections:   item.corrections    || 0,
+    // Process-time date fields (YYYY-MM-DD strings or null)
+    finDibujo:       item.finDibujo       || null,
+    aprobado:        item.aprobado        || null,
+    envioAprobacion: item.envioAprobacion || null,
+    envioFabrica:    item.envioFabrica    || null,
+    fechaInicio:     item.fechaInicio     || null,
   };
+}
+
+// ════════════════════════════════════════════════════════════
+// PROCESS-TIME HELPERS
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Parse a date string ("YYYY-MM-DD", ISO, or Spanish "DD/MM/YYYY") to a Date at midnight.
+ * Returns null if unparseable.
+ */
+function _parseItemDate(s) {
+  if (!s) return null;
+  // ISO / YYYY-MM-DD
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) { d.setHours(0,0,0,0); return d; }
+  // Spanish DD/MM/YYYY
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const d2 = new Date(+m[3], +m[2]-1, +m[1]);
+    if (!isNaN(d2.getTime())) return d2;
+  }
+  return null;
+}
+
+/**
+ * Calendar days from date a to date b (>= 0), null if invalid or out of range.
+ */
+function _calDays(a, b, max) {
+  if (!a || !b) return null;
+  const v = Math.round((b.getTime() - a.getTime()) / 86400000);
+  return (v >= 0 && v <= max) ? v : null;
+}
+
+/**
+ * Compute aggregate process times from an array of stored items.
+ * Returns an object with avg, median, and sample count for each transition.
+ * Only items from ClickUp (non-fromRegOnly) with the relevant date fields contribute.
+ *
+ * Transitions:
+ *   ini2fin   : fechaInicio  → finDibujo        (drawing duration)
+ *   fin2envio : finDibujo    → envioAprobacion   (Sr review delay)
+ *   envio2apv : envioAprobacion → aprobado       (client approval wait)
+ *   apv2fab   : aprobado     → envioFabrica      (Sr elabora OP + fabrica)
+ *   total     : finDibujo    → envioFabrica      (full pipeline)
+ */
+function calcProcessTimes(items) {
+  const buckets = { ini2fin: [], fin2envio: [], envio2apv: [], apv2fab: [], total: [] };
+  const LIMITS  = { ini2fin: 180, fin2envio: 90, envio2apv: 90, apv2fab: 60, total: 180 };
+
+  for (const item of items) {
+    if (item.fromRegOnly) continue;   // registry-only items have no process dates
+    const ini = _parseItemDate(item.fechaInicio);
+    const fin = _parseItemDate(item.finDibujo);
+    const env = _parseItemDate(item.envioAprobacion);
+    const apv = _parseItemDate(item.aprobado);
+    const fab = _parseItemDate(item.envioFabrica);
+
+    const v0 = _calDays(ini, fin, LIMITS.ini2fin);
+    const v1 = _calDays(fin, env, LIMITS.fin2envio);
+    const v2 = _calDays(env, apv, LIMITS.envio2apv);
+    const v3 = _calDays(apv, fab, LIMITS.apv2fab);
+    const vT = _calDays(fin, fab, LIMITS.total);
+
+    if (v0 !== null) buckets.ini2fin.push(v0);
+    if (v1 !== null) buckets.fin2envio.push(v1);
+    if (v2 !== null) buckets.envio2apv.push(v2);
+    if (v3 !== null) buckets.apv2fab.push(v3);
+    if (vT !== null) buckets.total.push(vT);
+  }
+
+  const avg = arr => arr.length ? parseFloat((arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)) : null;
+  const med = arr => {
+    if (!arr.length) return null;
+    const s = [...arr].sort((a,b)=>a-b);
+    const m = Math.floor(s.length/2);
+    return s.length % 2 ? s[m] : parseFloat(((s[m-1]+s[m])/2).toFixed(1));
+  };
+
+  const result = {};
+  for (const [key, arr] of Object.entries(buckets)) {
+    result[key] = { avg: avg(arr), med: med(arr), n: arr.length };
+  }
+  return result;
 }
 
 // ════════════════════════════════════════════════════════════

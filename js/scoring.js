@@ -150,7 +150,8 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
   function makeItem(fields) {
     const { name, parent, op, level, fromReg, hasLevel,
             pts, phase, pct, prevPhase, prevMonthLabel,
-            date, unconfirmed, fromRegOnly, corrections } = fields;
+            date, unconfirmed, fromRegOnly, corrections,
+            finDibujo, aprobado, envioAprobacion, envioFabrica, fechaInicio } = fields;
     return {
       name, parent, op, level, fromReg, hasLevel,
       score:         pts,
@@ -163,6 +164,12 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
       unconfirmed:   unconfirmed || false,
       fromRegOnly:   fromRegOnly || false,
       corrections:   corrections  || 0,
+      // Process-time date fields (date strings "YYYY-MM-DD" or null)
+      finDibujo:       finDibujo       || null,
+      aprobado:        aprobado        || null,
+      envioAprobacion: envioAprobacion || null,
+      envioFabrica:    envioFabrica    || null,
+      fechaInicio:     fechaInicio     || null,
     };
   }
 
@@ -233,7 +240,13 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
         date,
         unconfirmed:   thisMonthPhase === 'produccion' && mode === 'B' && !!t.op && unconfirmedOPs.has(t.op),
         fromRegOnly:   false,
-        corrections:   t.corrections || 0,
+        corrections:   t.corrections    || 0,
+        // Process-time date fields (passed straight from parsed ClickUp task)
+        finDibujo:       t.finDibujo       || null,
+        aprobado:        t.aprobado        || null,
+        envioAprobacion: t.envioAprobacion || null,
+        envioFabrica:    t.envio           || null,   // "envio" is the factory-send field
+        fechaInicio:     null,                        // not available in scoring context
       });
 
       if      (thisMonthPhase === 'produccion') bkt.productions.push(item);

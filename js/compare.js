@@ -135,6 +135,7 @@ const Compare = {
       case 'equipo':     this._renderEquipo(snapshots, body);     break;
       case 'velocidad':  this._renderVelocidad(snapshots, body);  break;
       case 'proyeccion': this._renderProyeccion(snapshots, body); break;
+      case 'tiempos':    this._renderTiempos(snapshots, body);    break;
     }
   },
 
@@ -738,6 +739,245 @@ const Compare = {
           <div class="cmp-ts-row"><span>Ítems en riesgo de no completarse</span><strong>${riskItems.length}</strong></div>
         </div>
       </div>`;
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // VIEW 5 — Tiempos de proceso
+  // ══════════════════════════════════════════════════════════════
+
+  _tiemposDesigner: null,   // currently selected designer in this view
+
+  _renderTiempos(snapshots, body) {
+    // ── Transition metadata ──
+    const TRANS = [
+      { key: 'ini2fin',   label: 'Inicio → Fin dibujo',           color: '#3b82f6' },
+      { key: 'fin2envio', label: 'Fin dibujo → Envío aprobación', color: '#7c3aed' },
+      { key: 'envio2apv', label: 'Envío → Aprobado por cliente',  color: '#f59e0b' },
+      { key: 'apv2fab',   label: 'Aprobado → Enviado a fábrica',  color: '#10b981' },
+      { key: 'total',     label: 'Total (fin dibujo → fábrica)',  color: '#ef4444' },
+    ];
+
+    // ── Check which snapshots have processTimes data ──
+    const hasData = snapshots.some(s => s.stored.processTimes);
+    if (!hasData) {
+      body.innerHTML = `<div class="cmp-empty">
+        <div class="cmp-empty-icon">⏱</div>
+        <p>No hay datos de tiempos de proceso en los snapshots seleccionados.</p>
+        <p class="cmp-empty-sub">Esta información se calcula al guardar el reporte. Re-guarda un mes para generarla.</p>
+      </div>`;
+      return;
+    }
+
+    const fmt = v => v !== null ? `${v.toFixed(1)} d` : '<span class="cmp-vel-na">—</span>';
+    const MIN_SAMPLES = 3;
+
+    // ── Team summary table ──────────────────────────────────
+    const teamTableRows = TRANS.map(({ key, label, color }) => {
+      const cells = snapshots.map(s => {
+        const pt = s.stored.processTimes?.[key];
+        if (!pt || pt.n === 0) return `<td class="cmp-vel-na">—</td>`;
+        if (pt.n < MIN_SAMPLES) return `<td class="cmp-tp-few" title="${pt.n} muestra${pt.n!==1?'s':''}">Pocos datos</td>`;
+        return `<td>
+          <div class="cmp-tp-avg">${pt.avg !== null ? pt.avg.toFixed(1) : '—'} d</div>
+          <div class="cmp-tp-med">med: ${pt.med !== null ? pt.med.toFixed(1) : '—'} d · n=${pt.n}</div>
+        </td>`;
+      }).join('');
+      return `<tr>
+        <td><span class="cmp-tp-dot" style="background:${color}"></span>${label}</td>
+        ${cells}
+      </tr>`;
+    }).join('');
+
+    const teamTable = `
+      <div class="cmp-section">
+        <div class="cmp-section-title">Tiempos promedio del equipo — días calendario</div>
+        <div style="overflow-x:auto">
+          <table class="cmp-vel-tbl cmp-tp-tbl">
+            <thead><tr>
+              <th>Transición</th>
+              ${snapshots.map(s => `<th>${esc(s.label)}</th>`).join('')}
+            </tr></thead>
+            <tbody>${teamTableRows}</tbody>
+          </table>
+        </div>
+      </div>`;
+
+    // ── Trend chart (SVG polylines) ──────────────────────────
+    // One line per transition across months. Only show if ≥2 snapshots with data.
+    const chartSnapshots = snapshots.filter(s => s.stored.processTimes);
+    let trendSvg = '';
+
+    if (chartSnapshots.length >= 2) {
+      const svgW = Math.max(380, chartSnapshots.length * 130);
+      const svgH = 180;
+      const pad  = { t: 20, r: 20, b: 36, l: 48 };
+      const cW   = svgW - pad.l - pad.r;
+      const cH   = svgH - pad.t - pad.b;
+
+      // Collect all valid avg values to compute scale
+      const allAvgs = [];
+      for (const { key } of TRANS) {
+        for (const s of chartSnapshots) {
+          const pt = s.stored.processTimes?.[key];
+          if (pt && pt.avg !== null && pt.n >= MIN_SAMPLES) allAvgs.push(pt.avg);
+        }
+      }
+      const maxVal = allAvgs.length ? niceMax(Math.max(...allAvgs)) : 60;
+      const niceS  = niceStep(maxVal, 5);
+
+      let sc = '';
+      // Grid
+      for (let v = 0; v <= maxVal + 0.001; v += niceS) {
+        const gy = pad.t + cH - (v / maxVal) * cH;
+        sc += `<line x1="${pad.l}" y1="${gy.toFixed(1)}" x2="${svgW - pad.r}" y2="${gy.toFixed(1)}" stroke="#ece8e2" stroke-width="1"/>`;
+        sc += `<text x="${pad.l - 5}" y="${(gy + 3.5).toFixed(1)}" font-size="8.5" text-anchor="end" fill="#b5b0aa">${Math.round(v)}</text>`;
+      }
+
+      const px = i => pad.l + (chartSnapshots.length === 1 ? cW / 2 : i * cW / (chartSnapshots.length - 1));
+      const py = v => pad.t + cH - (v / maxVal) * cH;
+
+      for (const { key, color } of TRANS) {
+        const points = [];
+        chartSnapshots.forEach((s, i) => {
+          const pt = s.stored.processTimes?.[key];
+          if (pt && pt.avg !== null && pt.n >= MIN_SAMPLES) {
+            points.push({ x: px(i), y: py(pt.avg), v: pt.avg });
+          }
+        });
+        if (points.length >= 2) {
+          sc += `<polyline points="${points.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}"
+            fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" opacity="0.85"/>`;
+        }
+        for (const p of points) {
+          sc += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="${color}"/>`;
+          sc += `<text x="${p.x.toFixed(1)}" y="${(p.y - 7).toFixed(1)}" font-size="8.5" text-anchor="middle" fill="${color}" font-weight="600">${p.v.toFixed(1)}</text>`;
+        }
+      }
+
+      // X labels
+      chartSnapshots.forEach((s, i) => {
+        sc += `<text x="${px(i).toFixed(1)}" y="${svgH - 5}" font-size="9.5" text-anchor="middle" fill="#9b9490">${esc(s.label)}</text>`;
+      });
+      // Axes
+      sc += `<line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${pad.t + cH}" stroke="#d4cfc9" stroke-width="1"/>`;
+      sc += `<line x1="${pad.l}" y1="${pad.t + cH}" x2="${svgW - pad.r}" y2="${pad.t + cH}" stroke="#d4cfc9" stroke-width="1"/>`;
+
+      const legendHtml = TRANS.map(({ label, color }) =>
+        `<span class="cmp-leg-dot" style="background:${color}"></span>${label}`
+      ).join(' &nbsp; ');
+
+      trendSvg = `
+        <div class="cmp-section">
+          <div class="cmp-section-title">Tendencia de tiempos — días promedio</div>
+          <div class="cmp-legend-row" style="flex-wrap:wrap;gap:8px 16px">${legendHtml}</div>
+          <div style="overflow-x:auto;padding-bottom:4px">
+            <svg width="${svgW}" height="${svgH}" style="display:block;overflow:visible">${sc}</svg>
+          </div>
+        </div>`;
+    }
+
+    // ── Interpretation cards ────────────────────────────────
+    // Show the latest month's values as cards with color-coded status
+    const latestSnap = [...chartSnapshots].reverse().find(s => s.stored.processTimes);
+    let cardsHtml = '';
+    if (latestSnap) {
+      const pt = latestSnap.stored.processTimes;
+      // Reference thresholds (rough targets): fin2envio ≤5d, envio2apv ≤14d, apv2fab ≤5d
+      const THRESHOLDS = { ini2fin: null, fin2envio: 5, envio2apv: 14, apv2fab: 5, total: null };
+      const cardItems = TRANS.filter(t => t.key !== 'total').map(({ key, label, color }) => {
+        const v   = pt[key];
+        const thr = THRESHOLDS[key];
+        if (!v || v.n < MIN_SAMPLES) return `
+          <div class="cmp-tp-card cmp-tp-card-na">
+            <div class="cmp-tp-card-label">${label}</div>
+            <div class="cmp-tp-card-val">—</div>
+            <div class="cmp-tp-card-sub">Pocos datos</div>
+          </div>`;
+        const status = thr === null ? 'neutral'
+          : v.avg <= thr ? 'good'
+          : v.avg <= thr * 1.5 ? 'warn'
+          : 'bad';
+        const statusIcon = { good: '✅', warn: '⚠️', bad: '🔴', neutral: '' }[status];
+        const subText = thr !== null
+          ? (status === 'good' ? `Dentro del objetivo (≤${thr}d)` : `Objetivo: ≤${thr}d`)
+          : `Mediana: ${v.med !== null ? v.med.toFixed(1) : '—'} d`;
+        return `
+          <div class="cmp-tp-card cmp-tp-card-${status}">
+            <div class="cmp-tp-card-label">${statusIcon} ${label}</div>
+            <div class="cmp-tp-card-val" style="color:${color}">${v.avg.toFixed(1)} d</div>
+            <div class="cmp-tp-card-sub">${subText} · n=${v.n}</div>
+          </div>`;
+      });
+      cardsHtml = `
+        <div class="cmp-section">
+          <div class="cmp-section-title">Interpretación — ${esc(latestSnap.label)}</div>
+          <div class="cmp-tp-cards">${cardItems.join('')}</div>
+        </div>`;
+    }
+
+    // ── Per-designer table ──────────────────────────────────
+    // Collect all designer names that have processTimesByDesigner in any snapshot
+    const allDesNames = new Set();
+    for (const s of snapshots) {
+      for (const n of Object.keys(s.stored.processTimesByDesigner || {})) allDesNames.add(n);
+    }
+    const sortedNames = [...allDesNames].sort();
+
+    // Designer selector
+    if (!this._tiemposDesigner || !allDesNames.has(this._tiemposDesigner)) {
+      this._tiemposDesigner = sortedNames[0] || null;
+    }
+
+    let desTableHtml = '';
+    if (sortedNames.length && this._tiemposDesigner) {
+      const selOpts = sortedNames.map(n =>
+        `<option value="${esc(n)}"${n === this._tiemposDesigner ? ' selected' : ''}>${esc(n)}</option>`
+      ).join('');
+
+      const desRows = TRANS.map(({ key, label, color }) => {
+        const cells = snapshots.map(s => {
+          const pt = s.stored.processTimesByDesigner?.[this._tiemposDesigner]?.[key];
+          if (!pt || pt.n === 0) return `<td class="cmp-vel-na">—</td>`;
+          if (pt.n < 2) return `<td class="cmp-tp-few" title="${pt.n} muestra">Pocos datos</td>`;
+          return `<td>
+            <div class="cmp-tp-avg">${pt.avg !== null ? pt.avg.toFixed(1) : '—'} d</div>
+            <div class="cmp-tp-med">med: ${pt.med !== null ? pt.med.toFixed(1) : '—'} d · n=${pt.n}</div>
+          </td>`;
+        }).join('');
+        return `<tr>
+          <td><span class="cmp-tp-dot" style="background:${color}"></span>${label}</td>
+          ${cells}
+        </tr>`;
+      }).join('');
+
+      desTableHtml = `
+        <div class="cmp-section">
+          <div class="cmp-section-title">
+            Tiempos por diseñador
+            <select class="cmp-tp-des-sel" id="cmp-tp-des-sel">${selOpts}</select>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="cmp-vel-tbl cmp-tp-tbl">
+              <thead><tr>
+                <th>Transición</th>
+                ${snapshots.map(s => `<th>${esc(s.label)}</th>`).join('')}
+              </tr></thead>
+              <tbody>${desRows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }
+
+    body.innerHTML = teamTable + trendSvg + cardsHtml + desTableHtml;
+
+    // Bind designer selector
+    const desSel = body.querySelector('#cmp-tp-des-sel');
+    if (desSel) {
+      desSel.addEventListener('change', () => {
+        this._tiemposDesigner = desSel.value;
+        this._renderContent();
+      });
+    }
   },
 
   // ── Helpers ─────────────────────────────────────────────────

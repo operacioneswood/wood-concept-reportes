@@ -3176,3 +3176,85 @@ body {
   padding-top: 10px;
 }
 .cmp-ts-total span { color: var(--text); }
+
+/* ── VIEW 5: Tiempos de proceso ── */
+.cmp-tp-tbl th:first-child,
+.cmp-tp-tbl td:first-child {
+  min-width: 210px;
+  white-space: nowrap;
+}
+.cmp-tp-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.cmp-tp-avg {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.cmp-tp-med {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.cmp-tp-few {
+  color: var(--faint);
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* Interpretation cards */
+.cmp-tp-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.cmp-tp-card {
+  flex: 1 1 160px;
+  min-width: 140px;
+  max-width: 220px;
+  border-radius: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+.cmp-tp-card-good  { border-color: #86efac; background: #f0fdf4; }
+.cmp-tp-card-warn  { border-color: #fcd34d; background: #fffbeb; }
+.cmp-tp-card-bad   { border-color: #fca5a5; background: #fef2f2; }
+.cmp-tp-card-na    { opacity: .55; }
+.cmp-tp-card-neutral { border-color: var(--border); }
+
+.cmp-tp-card-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+.cmp-tp-card-val {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.cmp-tp-card-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Designer selector inside section title */
+.cmp-tp-des-sel {
+  margin-left: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--divider);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+.cmp-tp-des-sel:focus { outline: none; box-shadow: 0 0 0 2px var(--blue-200,#bae6fd); }
