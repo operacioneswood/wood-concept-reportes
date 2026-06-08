@@ -253,18 +253,27 @@ function itemToStorage(item) {
 // ════════════════════════════════════════════════════════════
 
 /**
- * Parse a date string ("YYYY-MM-DD", ISO, or Spanish "DD/MM/YYYY") to a Date at midnight.
+ * Parse a date string to a Date at midnight. Handles:
+ *   - ClickUp tsToDateStr format: "Wednesday, April 1st 2026"  (via parseCUDate from parser.js)
+ *   - ISO / YYYY-MM-DD
+ *   - Spanish DD/MM/YYYY
  * Returns null if unparseable.
  */
 function _parseItemDate(s) {
   if (!s) return null;
-  // ISO / YYYY-MM-DD
+  // parseCUDate (parser.js, loaded before storage.js) handles "Weekday, Month Dst YYYY"
+  // as well as plain date strings — use it as the primary parser.
+  if (typeof parseCUDate === 'function') {
+    const d = parseCUDate(s);
+    if (d) { d.setHours(0, 0, 0, 0); return d; }
+  }
+  // ISO / YYYY-MM-DD fallback
   const d = new Date(s);
-  if (!isNaN(d.getTime())) { d.setHours(0,0,0,0); return d; }
-  // Spanish DD/MM/YYYY
+  if (!isNaN(d.getTime())) { d.setHours(0, 0, 0, 0); return d; }
+  // Spanish DD/MM/YYYY fallback
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
-    const d2 = new Date(+m[3], +m[2]-1, +m[1]);
+    const d2 = new Date(+m[3], +m[2] - 1, +m[1]);
     if (!isNaN(d2.getTime())) return d2;
   }
   return null;
