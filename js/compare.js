@@ -170,9 +170,11 @@ const Compare = {
           : { draw: null, apv: null, prod: null, tot: null, cnt: null };
       });
 
-      const first = rows[0], last = rows[n - 1];
-      const delta = key => (first[key]===null||last[key]===null) ? null
-        : parseFloat((last[key] - first[key]).toFixed(2));
+      // Δ = mes N vs mes N-1 (tendencia más reciente, no primero vs último)
+      const prev = n >= 2 ? rows[n - 2] : null;
+      const last = rows[n - 1];
+      const delta = key => (!prev || prev[key]===null || last[key]===null) ? null
+        : parseFloat((last[key] - prev[key]).toFixed(2));
 
       // SVG grouped bar chart
       const maxVal = Math.max(1, ...rows.flatMap(r => [r.draw||0, r.apv||0, r.prod||0]));
@@ -223,6 +225,17 @@ const Compare = {
         const cells = rows.map(r => `<td>${r[key]!==null ? (integer ? Math.round(r[key]) : fmtNum(r[key])) : '<span class="cmp-na">—</span>'}</td>`).join('');
         return `<tr><td class="cmp-row-label">${label}</td>${cells}${n>=2 ? deltaCell(delta(key), integer) : ''}</tr>`;
       };
+      const derivedRow = (label, fn, suffix='') => {
+        const vals = rows.map(r => fn(r));
+        const cells = vals.map(v => `<td>${v !== null ? `${fmtNum(v)}${suffix}` : '<span class="cmp-na">—</span>'}</td>`).join('');
+        let dCell = '';
+        if (n >= 2) {
+          const lv = fn(last), pv = prev ? fn(prev) : null;
+          const d = (lv !== null && pv !== null) ? parseFloat((lv - pv).toFixed(2)) : null;
+          dCell = deltaCell(d);
+        }
+        return `<tr><td class="cmp-row-label">${label}</td>${cells}${dCell}</tr>`;
+      };
 
       const legend = KEYS.map((k,i)=>`<span class="cmp-leg-dot" style="background:${COLORS[i]}"></span>${LBLS[i]}`).join(' &nbsp;');
 
@@ -248,6 +261,8 @@ const Compare = {
                   ${valRow('Producción','prod')}
                   ${valRow('Total','tot')}
                   ${valRow('Ítems','cnt',true)}
+                  ${derivedRow('pts/ítem', r => (r.cnt && r.tot !== null) ? parseFloat((r.tot / r.cnt).toFixed(2)) : null)}
+                  ${derivedRow('% Conversión', r => (r.draw && r.prod !== null) ? parseFloat(((r.prod / r.draw) * 100).toFixed(1)) : null, '%')}
                 </tbody>
               </table>
             </div>
