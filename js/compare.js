@@ -132,6 +132,7 @@ const Compare = {
 
     switch (this._view) {
       case 'diseñador':  this._renderDiseñador(snapshots, body);  break;
+      case 'ranking-mensual': this._renderRankingMensual(snapshots, body); break;
       case 'equipo':     this._renderEquipo(snapshots, body);     break;
       case 'velocidad':  this._renderVelocidad(snapshots, body);  break;
       case 'proyeccion': this._renderProyeccion(snapshots, body); break;
@@ -269,6 +270,92 @@ const Compare = {
           </div>
         </div>`;
     }).join('');
+  },
+
+  // ══════════════════════════════════════════════════════════════
+  // VIEW 1B — Ranking mensual (todos los diseñadores en un solo bar chart)
+  // ══════════════════════════════════════════════════════════════
+
+  _renderRankingMensual(snapshots, body) {
+    const MONTH_COLORS = ['#3b82f6', '#7c3aed', '#10b981'];
+    const AVG_COLOR     = '#9b9490';
+
+    // All-time average per designer (from every stored month, not just selected)
+    const avgOf = name => {
+      const vals = this._stored.map(s => s.designers?.[name]?.total).filter(v => v != null);
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    };
+
+    // Rank designers by their combined total across the selected months
+    const names = this._allDesignerNames(snapshots.map(s => s.stored))
+      .map(name => ({
+        name,
+        combined: snapshots.reduce((sum, s) => sum + (s.stored.designers?.[name]?.total || 0), 0),
+      }))
+      .sort((a, b) => b.combined - a.combined)
+      .map(x => x.name);
+
+    const groups = [
+      ...snapshots.map((s, i) => ({
+        label: s.label,
+        color: MONTH_COLORS[i % MONTH_COLORS.length],
+        values: names.map(name => s.stored.designers?.[name]?.total || 0),
+      })),
+      {
+        label: 'Promedio general',
+        color: AVG_COLOR,
+        values: names.map(name => parseFloat(avgOf(name).toFixed(1))),
+      },
+    ];
+
+    const n       = names.length;
+    const gCount  = groups.length;
+    const svgH    = 260, svgW = Math.max(420, n * Math.max(70, gCount * 20));
+    const pad     = { t: 20, r: 16, b: 46, l: 46 };
+    const cW      = svgW - pad.l - pad.r;
+    const cH      = svgH - pad.t - pad.b;
+    const slotW   = cW / n;
+    const barPad  = slotW * 0.12;
+    const barW    = (slotW - barPad * 2) / gCount;
+    const maxVal  = Math.max(1, ...groups.flatMap(g => g.values));
+    const niceM   = niceMax(maxVal);
+    const niceS   = niceStep(niceM, 5);
+
+    let svgContent = '';
+    for (let v = 0; v <= niceM + 0.001; v += niceS) {
+      const gy = pad.t + cH - (v / niceM) * cH;
+      svgContent += `<line x1="${pad.l}" y1="${gy.toFixed(1)}" x2="${svgW - pad.r}" y2="${gy.toFixed(1)}" stroke="#ece8e2" stroke-width="1"/>`;
+      svgContent += `<text x="${pad.l - 6}" y="${(gy + 4).toFixed(1)}" font-size="9" text-anchor="end" fill="#b5b0aa">${fmtNum(v)}</text>`;
+    }
+    names.forEach((name, i) => {
+      const slotX = pad.l + i * slotW;
+      groups.forEach((g, gi) => {
+        const val = g.values[i] || 0;
+        const bh  = Math.max(val > 0 ? 1 : 0, (val / niceM) * cH);
+        const bx  = slotX + barPad + gi * barW;
+        const by  = pad.t + cH - bh;
+        svgContent += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${(barW - 1.5).toFixed(1)}" height="${bh.toFixed(1)}"
+          fill="${g.color}" rx="2" opacity="${g.label === 'Promedio general' ? 0.55 : 0.88}">
+          <title>${esc(name)} — ${esc(g.label)}: ${fmtNum(val)} pts</title></rect>`;
+      });
+      const color = DESIGNER_COLORS[name] || '#888';
+      svgContent += `<circle cx="${(slotX + slotW / 2 - 22).toFixed(1)}" cy="${svgH - 20}" r="3.5" fill="${color}"/>`;
+      svgContent += `<text x="${(slotX + slotW / 2).toFixed(1)}" y="${svgH - 16}" font-size="9.5" text-anchor="middle" fill="#9b9490">${esc(name.split(' ')[0])}</text>`;
+    });
+    svgContent += `<line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${pad.t + cH}" stroke="#d4cfc9" stroke-width="1"/>`;
+    svgContent += `<line x1="${pad.l}" y1="${pad.t + cH}" x2="${svgW - pad.r}" y2="${pad.t + cH}" stroke="#d4cfc9" stroke-width="1"/>`;
+
+    const svg = `<svg width="${svgW}" height="${svgH}" style="display:block;overflow:visible">${svgContent}</svg>`;
+    const legend = groups.map(g =>
+      `<span class="cmp-leg-dot" style="background:${g.color}${g.label === 'Promedio general' ? ';opacity:.55' : ''}"></span>${esc(g.label)}`
+    ).join(' &nbsp; ');
+
+    body.innerHTML = `
+      <div class="cmp-section">
+        <div class="cmp-section-title">Puntos totales por diseñador — comparación entre meses</div>
+        <div class="cmp-legend-row">${legend}</div>
+        <div style="overflow-x:auto;padding-bottom:4px">${svg}</div>
+      </div>`;
   },
 
   // ══════════════════════════════════════════════════════════════

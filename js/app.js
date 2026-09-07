@@ -136,6 +136,10 @@ const App = {
         onProgress: msg => this._setSyncStatus('loading', msg),
       });
       this._cuApiData = result;
+      // Populate Schedule._rawTasks/_apiTasks right away — Comparar meses'
+      // Velocidad/Proyección views read those directly and previously only
+      // got them once the user visited the Cronograma tab at least once.
+      Schedule.renderFromAPI(result.rawTasks, result.fieldIds);
       this._onFilesChanged();
 
       // Build a status message that tells the user exactly what was found
