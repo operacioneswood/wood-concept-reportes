@@ -404,6 +404,7 @@ function storedToRender(stored) {
     month:  stored.month,
     year:   stored.year,
     designers,
+    facts:  stored.facts || null,
     unassigned: {
       drawings:    (ua.drawing  || ua.aprob || []).map(storedItemToRender),
       approved:    (ua.approved || []).map(storedItemToRender),
