@@ -416,6 +416,29 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
     d.productions = d.productions.filter( item => bestRank.get(npKey(item)) === CROSS_RANK.produccion);
   }
 
+  // ── 4e. Real per-phase counts per designer ───────────────
+  // Production items that come only from the factory Registro (Mode B
+  // "solo fábrica" / Mode C) have no ClickUp date, so fold them in too.
+  for (const [name, d] of dMap) {
+    const prodSet = getProdFacts(name);
+    for (const item of d.productions) prodSet.add(factKey(item.op, item.name, item.parent));
+  }
+  const factNames = new Set([...apvFactMap.keys(), ...drawFactMap.keys(), ...prodFactMap.keys()]);
+  const factsByDesigner = {};
+  const factsTeam = { draw: 0, apv: 0, prod: 0 };
+  for (const name of factNames) {
+    const f = {
+      draw: (drawFactMap.get(name) || new Set()).size,
+      apv:  (apvFactMap.get(name)  || new Set()).size,
+      prod: (prodFactMap.get(name) || new Set()).size,
+    };
+    factsByDesigner[name] = f;
+    factsTeam.draw += f.draw;
+    factsTeam.apv  += f.apv;
+    factsTeam.prod += f.prod;
+  }
+  const facts = { byDesigner: factsByDesigner, team: factsTeam };
+
   // ── 5. Aggregate per-designer totals ─────────────────────
   const designers = [];
   for (const [name, d] of dMap) {
