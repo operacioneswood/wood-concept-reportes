@@ -137,6 +137,9 @@ function reportToStorage(report, mode) {
     starPts:        report.metrics.starPts        || 0,
     tRep:           report.metrics.tRep            || 0,
     topDesigner:    report.metrics.topDesigner    || null,
+    // Real count of planos with an APROBADO date inside the month (the phase
+    // arrays only keep each plano under its highest phase). Absent on older months.
+    facts:          report.facts || null,
   };
 
   // Per-designer data
