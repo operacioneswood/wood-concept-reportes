@@ -229,6 +229,13 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
         getApvFacts(primaryDesigner).add(factKey(t.op, t.name, t.parent));
       }
 
+      if (primaryDesigner && hasDraw) {
+        getDrawFacts(primaryDesigner).add(factKey(t.op, t.name, t.parent));
+      }
+      if (primaryDesigner && hasProd) {
+        getProdFacts(primaryDesigner).add(factKey(t.op, t.name, t.parent));
+      }
+
       if (!hasProd && !hasApv && !hasDraw) continue;  // no activity this month
 
       // Highest phase reached this month
