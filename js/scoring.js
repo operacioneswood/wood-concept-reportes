@@ -157,6 +157,18 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
     if (!apvFactMap.has(name)) apvFactMap.set(name, new Set());
     return apvFactMap.get(name);
   }
+  // Same idea for Dibujo (FIN DE DIBUJO in month) and Producción (ENVÍO A FÁBRICA
+  // in month): the summary table counts each plano under every phase it really reached.
+  const drawFactMap = new Map();   // designer → Set of plano keys
+  const prodFactMap = new Map();   // designer → Set of plano keys
+  function getDrawFacts(name) {
+    if (!drawFactMap.has(name)) drawFactMap.set(name, new Set());
+    return drawFactMap.get(name);
+  }
+  function getProdFacts(name) {
+    if (!prodFactMap.has(name)) prodFactMap.set(name, new Set());
+    return prodFactMap.get(name);
+  }
   const factKey = (op, name, parent) => op || `${name || ''}||${parent || ''}`;
 
   // ── Build a canonical item object ────────────────────────
