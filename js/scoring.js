@@ -146,6 +146,19 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
     return dMap.get(name);
   }
 
+  // ── Real approved count ("fact") ─────────────────────────
+  // The buckets above keep each plano only in its HIGHEST phase of the month
+  // (and skip ones that earn no new points), so a plano approved and sent to
+  // fábrica the same month only shows under Producción. This set counts every
+  // plano with an APROBADO date inside the month, per designer, so the summary
+  // table can show the real number of approved planos.
+  const apvFactMap = new Map();   // designer → Set of plano keys
+  function getApvFacts(name) {
+    if (!apvFactMap.has(name)) apvFactMap.set(name, new Set());
+    return apvFactMap.get(name);
+  }
+  const factKey = (op, name, parent) => op || `${name || ''}||${parent || ''}`;
+
   // ── Build a canonical item object ────────────────────────
   function makeItem(fields) {
     const { name, parent, op, level, fromReg, hasLevel,
