@@ -174,6 +174,32 @@ const Report = {
   },
 
   _renderTeamSummary() {
+const wrap = el('team-summary');
+if (!wrap) return;
+const fx = this._report.facts;
+if (!(fx && fx.byDesigner && fx.team)) return this._renderTeamSummaryLegacy();
+const designers = this._report.designers;
+const showTiered = this._mode !== 'C';
+if (!designers.length) { wrap.innerHTML = ''; return; }
+const known = new Set(designers.map(d => d.name));
+const names = designers.map(d => d.name).concat(Object.keys(fx.byDesigner).filter(n => !known.has(n)));
+const colorOf = n => (designers.find(d => d.name === n) || {}).color || DESIGNER_COLORS[n] || '#888888';
+const cnt = (n, k) => (fx.byDesigner[n] || {})[k] || 0;
+const teamDraw = showTiered ? fx.team.draw : 0;
+const teamApv = showTiered ? fx.team.apv : 0;
+const teamProd = fx.team.prod;
+const teamTotal = teamDraw + teamApv + teamProd;
+const rows = names.map(n => {
+const draw = showTiered ? cnt(n, 'draw') : 0;
+const apv = showTiered ? cnt(n, 'apv') : 0;
+const prod = cnt(n, 'prod');
+const total = draw + apv + prod;
+return `<tr><td class="ts-name"><span class="ts-dot" style="background:${colorOf(n)}"></span>${esc(n)}</td>${showTiered ? `<td class="ts-num" style="color:var(--aprob-text)">${draw}</td>` : ''}${showTiered ? `<td class="ts-num" style="color:var(--apv-text)">${apv}</td>` : ''}<td class="ts-num" style="color:var(--prod-text)">${prod}</td><td class="ts-num ts-total">${total}</td></tr>`;
+}).join('');
+wrap.innerHTML = `<table class="team-summary-table"><thead><tr><th class="ts-name">Diseñador</th>${showTiered ? `<th class="ts-num" style="color:var(--aprob-text)">Dibujo</th>` : ''}${showTiered ? `<th class="ts-num" style="color:var(--apv-text)">Aprobado</th>` : ''}<th class="ts-num" style="color:var(--prod-text)">Producción</th><th class="ts-num ts-total">Total</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td class="ts-name ts-team">Equipo</td>${showTiered ? `<td class="ts-num ts-team" style="color:var(--aprob-text)">${teamDraw}</td>` : ''}${showTiered ? `<td class="ts-num ts-team" style="color:var(--apv-text)">${teamApv}</td>` : ''}<td class="ts-num ts-team" style="color:var(--prod-text)">${teamProd}</td><td class="ts-num ts-team ts-total">${teamTotal}</td></tr></tfoot></table>`;
+},
+
+_renderTeamSummary() {
     const wrap = el('team-summary');
     if (!wrap) return;
     const { designers, metrics } = this._report;
