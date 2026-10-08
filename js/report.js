@@ -199,7 +199,7 @@ return `<tr><td class="ts-name"><span class="ts-dot" style="background:${colorOf
 wrap.innerHTML = `<table class="team-summary-table"><thead><tr><th class="ts-name">Diseñador</th>${showTiered ? `<th class="ts-num" style="color:var(--aprob-text)">Dibujo</th>` : ''}${showTiered ? `<th class="ts-num" style="color:var(--apv-text)">Aprobado</th>` : ''}<th class="ts-num" style="color:var(--prod-text)">Producción</th><th class="ts-num ts-total">Total</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td class="ts-name ts-team">Equipo</td>${showTiered ? `<td class="ts-num ts-team" style="color:var(--aprob-text)">${teamDraw}</td>` : ''}${showTiered ? `<td class="ts-num ts-team" style="color:var(--apv-text)">${teamApv}</td>` : ''}<td class="ts-num ts-team" style="color:var(--prod-text)">${teamProd}</td><td class="ts-num ts-team ts-total">${teamTotal}</td></tr></tfoot></table>`;
 },
 
-_renderTeamSummary() {
+_renderTeamSummaryLegacy() {
     const wrap = el('team-summary');
     if (!wrap) return;
     const { designers, metrics } = this._report;
