@@ -528,6 +528,7 @@ function buildReport(mode, cuTasks, regEntries, month, year, allSavedMonths = []
     month,
     year,
     designers,
+    facts,
     unassigned: {
       drawings:    unasgn.drawings,
       approved:    unasgn.approved,
