@@ -678,7 +678,7 @@ container.innerHTML = `<style>
 .ep-tbl th { position: sticky; top: 0; z-index: 1; box-shadow: 0 1px 0 #cfc9c1; }
 .ep-sub { display: inline; margin-left: 6px; }
 </style>
-<h2 style="margin:4px 0 12px;font-size:18px">Estado de Proyectos</h2>
+<div style="display:flex;justify-content:space-between;align-items:center;margin:4px 0 10px"><h2 style="margin:0;font-size:18px">Estado de Proyectos</h2><button class="btn-secondary" onclick="Schedule._printEstadoProyectos()">🖨 Imprimir</button></div>
 <div class="ep-wrap"><table class="ep-tbl">
 <thead><tr><th>Nº</th><th>Proyecto</th><th>Total, ítems</th><th>Ítem<br>Cancelados</th><th>Por dibujar</th><th>En dibujo</th><th>Enviados a<br>aprobación</th><th>Revisión<br>constructivo</th><th>Pendientes<br>por obra</th><th>Enviados a<br>fábrica</th></tr></thead>
 <tbody>${mainRows}${iniciarRows ? `<tr><td class="ep-sec" colspan="10">PROYECTOS POR INICIAR</td></tr>${iniciarRows}` : ''}</tbody>
