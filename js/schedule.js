@@ -651,6 +651,7 @@ container.innerHTML = `<style>
 
 _renderViewArea(area) {
     if (!area) return;
+if (this._mainView === 'estado') { this._renderEstadoProyectos(area); return; }
     if (this._mainView === 'asignacion') {
       this._renderAsignacion(area);
     } else {
