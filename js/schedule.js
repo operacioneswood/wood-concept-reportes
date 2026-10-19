@@ -579,7 +579,77 @@ const Schedule = {
     }
   },
 
-  _renderViewArea(area) {
+  // ── Estado de proyectos: conteo de subtareas por estado de ClickUp ──
+_estadoProyectos() {
+const raw = this._rawTasks || [];
+const byId = new Map(raw.map(t => [t.id, t]));
+const rootOf = t => { let cur = t; const seen = new Set(); while (cur && cur.parent) { if (seen.has(cur.id)) return null; seen.add(cur.id); cur = byId.get(cur.parent); } return cur || null; };
+const CLOSED = new Set(['proyecto terminado', 'entregado', 'cancelado']);
+const POR_DIBUJAR = new Set(['proximos a entrar', 'asignado', 'diseno']);
+const FABRICA = new Set(['enviado a fabrica', 'pendiente de revision', 'por asignar', 'fabrica', 'corte', 'enchape', 'en ebanisteria', 'en pintura', 'reproceso', 'pendiente chapilla', 'empaque', 'bodega', 'enviado a instalacion', 'en instalacion', 'entregado', 'proyecto terminado']);
+const projects = new Map();
+for (const t of raw) {
+if (!t.parent) continue;
+const root = rootOf(t);
+if (!root || CLOSED.has(normStr(root.status?.status || ''))) continue;
+const s = normStr(t.status?.status || '');
+let key = null;
+if (s === 'sin asignar') key = 'sinAsignar';
+else if (s === 'cancelado') key = 'cancel';
+else if (POR_DIBUJAR.has(s)) key = 'porDibujar';
+else if (s === 'en dibujo') key = 'enDibujo';
+else if (s === 'enviado a aprobacion') key = 'enviadoAprob';
+else if (s === 'revision de constructivo') key = 'revision';
+else if (s === 'pendiente por obra') key = 'pendObra';
+else if (FABRICA.has(s)) key = 'fabrica';
+if (!key) continue;
+let p = projects.get(root.id);
+if (!p) { p = { id: root.id, name: root.name || '', total: 0, cancel: 0, porDibujar: 0, enDibujo: 0, enviadoAprob: 0, revision: 0, pendObra: 0, fabrica: 0, sinAsignar: 0 }; projects.set(root.id, p); }
+p[key]++;
+if (key !== 'sinAsignar') p.total++;
+}
+const list = [...projects.values()];
+const byName = (a, b) => a.name.localeCompare(b.name, 'es');
+return {
+main: list.filter(p => p.porDibujar + p.enDibujo + p.enviadoAprob + p.revision + p.pendObra > 0).sort(byName),
+porIniciar: list.filter(p => p.sinAsignar > 0).sort(byName),
+};
+},
+
+_renderEstadoProyectos(container) {
+const { main, porIniciar } = this._estadoProyectos();
+if (!main.length && !porIniciar.length) { container.innerHTML = '<div class="wl-prompt"><p>No hay proyectos con ítems en diseño o pendientes.</p></div>'; return; }
+const titleCase = s => s.toLowerCase().replace(/(^|[\s\-/(])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+const nameHtml = p => { const parts = (p.name || '').split(' / '); const rest = parts.slice(1).join(' / '); return `${esc(titleCase(parts[0].trim()))}${rest ? `<span class="ep-sub">${esc(rest)}</span>` : ''}`; };
+const COLS = ['total', 'cancel', 'porDibujar', 'enDibujo', 'enviadoAprob', 'revision', 'pendObra', 'fabrica'];
+const sums = Object.fromEntries(COLS.map(c => [c, 0]));
+let n = 0;
+const rowHtml = (v, p) => { n++; for (const c of COLS) sums[c] += v[c]; return `<tr><td class="ep-n ep-idx">${n}</td><td class="ep-name">${nameHtml(p)}</td>${COLS.map(c => `<td class="ep-n">${v[c]}</td>`).join('')}</tr>`; };
+const mainRows = main.map(p => rowHtml(p, p)).join('');
+const iniciarRows = porIniciar.map(p => rowHtml({ total: p.sinAsignar, cancel: 0, porDibujar: 0, enDibujo: 0, enviadoAprob: 0, revision: 0, pendObra: p.sinAsignar, fabrica: 0 }, p)).join('');
+container.innerHTML = `<style>
+.ep-wrap { overflow-x: auto; }
+.ep-tbl { border-collapse: collapse; font-size: 13px; background: #fff; min-width: 780px; }
+.ep-tbl th, .ep-tbl td { border: 1px solid #cfc9c1; padding: 4px 9px; }
+.ep-tbl th { background: #f6e7c1; text-align: center; font-weight: 700; line-height: 1.25; }
+.ep-tbl td.ep-n { text-align: right; font-variant-numeric: tabular-nums; }
+.ep-tbl td.ep-idx { color: #8a8279; width: 34px; }
+.ep-tbl td.ep-name { white-space: nowrap; }
+.ep-tbl td.ep-sec { text-align: center; font-weight: 700; background: #faf6ec; letter-spacing: .04em; }
+.ep-tbl tfoot td { background: #f6e7c1; font-weight: 700; }
+.ep-sub { display: block; font-size: 11px; color: #8a8279; font-weight: 400; }
+.ep-note { font-size: 12px; color: #8a8279; margin: 8px 0 0; }
+</style>
+<h2 style="margin:4px 0 12px;font-size:18px">Estado de Proyectos</h2>
+<div class="ep-wrap"><table class="ep-tbl">
+<thead><tr><th>Nº</th><th>Proyecto</th><th>Total, ítems</th><th>Ítem<br>Cancelados</th><th>Por dibujar</th><th>En dibujo</th><th>Enviados a<br>aprobación</th><th>Revisión<br>constructivo</th><th>Pendientes<br>por obra</th><th>Enviados a<br>fábrica</th></tr></thead>
+<tbody>${mainRows}${iniciarRows ? `<tr><td class="ep-sec" colspan="10">PROYECTOS POR INICIAR</td></tr>${iniciarRows}` : ''}</tbody>
+<tfoot><tr><td></td><td>Subtotal</td>${COLS.map(c => `<td class="ep-n">${sums[c]}</td>`).join('')}</tr></tfoot>
+</table></div>
+<p class="ep-note">Conteo de subtareas según su estado en ClickUp. "Proyectos por iniciar" = subtareas en estado "sin asignar".</p>`;
+},
+
+_renderViewArea(area) {
     if (!area) return;
     if (this._mainView === 'asignacion') {
       this._renderAsignacion(area);
