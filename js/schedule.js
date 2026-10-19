@@ -601,7 +601,7 @@ else if (POR_DIBUJAR.has(s)) key = 'porDibujar';
 else if (s === 'en dibujo') key = 'enDibujo';
 else if (s === 'enviado a aprobacion') key = 'enviadoAprob';
 else if (s === 'revision de constructivo') key = 'revision';
-else if (s === 'pendiente por obra') key = 'pendObra';
+else if (s === 'pendiente por obra' || s === 'proximos a entrar') key = 'pendObra';
 else if (FABRICA.has(s)) key = 'fabrica';
 if (!key) continue;
 let p = projects.get(root.id);
