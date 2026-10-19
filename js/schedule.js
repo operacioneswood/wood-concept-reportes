@@ -617,6 +617,38 @@ porIniciar: list.filter(p => p.sinAsignar > 0).sort(byName),
 };
 },
 
+_printEstadoProyectos() {
+const tbl = document.querySelector('.ep-tbl');
+if (!tbl) return;
+const d = new Date();
+const months = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const dateFmt = `${d.getDate()} de ${months[d.getMonth()]} de ${d.getFullYear()}`;
+const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Estado de Proyectos</title><style>
+@page { size: letter landscape; margin: 0.5in; }
+* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: 'Segoe UI', Arial, sans-serif; color: #000; }
+h1 { font-size: 15pt; margin: 0 0 2pt; }
+.d { font-size: 9pt; color: #444; margin-bottom: 8pt; }
+table { border-collapse: collapse; width: 100%; font-size: 9.5pt; }
+th, td { border: 0.75pt solid #555; padding: 2.5pt 6pt; }
+th { background: #f6e7c1; text-align: center; font-weight: 700; }
+td.ep-n { text-align: right; }
+td.ep-idx { color: #666; width: 22pt; }
+td.ep-name { white-space: nowrap; }
+td.ep-sec { text-align: center; font-weight: 700; background: #faf6ec; letter-spacing: .04em; }
+tfoot td { background: #f6e7c1; font-weight: 700; }
+.ep-sub { font-size: 8pt; color: #555; margin-left: 5pt; font-weight: 400; }
+tr { break-inside: avoid; page-break-inside: avoid; }
+thead { display: table-header-group; }
+</style></head><body><h1>Estado de Proyectos</h1><div class="d">${dateFmt}</div>${tbl.outerHTML}</body></html>`;
+const win = window.open('', '_blank', 'width=1000,height=700');
+if (!win) { alert('Permite ventanas emergentes para imprimir.'); return; }
+win.document.write(html);
+win.document.close();
+win.focus();
+setTimeout(() => win.print(), 400);
+},
+
 _renderEstadoProyectos(container) {
 const { main, porIniciar } = this._estadoProyectos();
 if (!main.length && !porIniciar.length) { container.innerHTML = '<div class="wl-prompt"><p>No hay proyectos con ítems en diseño o pendientes.</p></div>'; return; }
