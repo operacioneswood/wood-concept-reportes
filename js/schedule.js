@@ -554,6 +554,7 @@ const Schedule = {
         <div class="asign-main-tabs">
           <button class="asign-main-tab ${this._mainView === 'cronograma' ? 'active' : ''}" data-main="cronograma">📊 Cronograma</button>
           <button class="asign-main-tab ${this._mainView === 'asignacion' ? 'active' : ''}" data-main="asignacion">👥 Asignación</button>
+<button class="asign-main-tab ${this._mainView === 'estado' ? 'active' : ''}" data-main="estado">📋 Estado de proyectos</button>
         </div>
         <div id="sched-main-area"></div>`;
 
