@@ -586,7 +586,7 @@ const raw = this._rawTasks || [];
 const byId = new Map(raw.map(t => [t.id, t]));
 const rootOf = t => { let cur = t; const seen = new Set(); while (cur && cur.parent) { if (seen.has(cur.id)) return null; seen.add(cur.id); cur = byId.get(cur.parent); } return cur || null; };
 const CLOSED = new Set(['proyecto terminado', 'entregado', 'cancelado']);
-const POR_DIBUJAR = new Set(['proximos a entrar', 'asignado']);
+const POR_DIBUJAR = new Set(['asignado']);
 const FABRICA = new Set(['enviado a fabrica', 'pendiente de revision', 'por asignar', 'fabrica', 'corte', 'enchape', 'en ebanisteria', 'en pintura', 'reproceso', 'pendiente chapilla', 'empaque', 'bodega', 'enviado a instalacion', 'en instalacion', 'entregado', 'proyecto terminado']);
 const projects = new Map();
 for (const t of raw) {
