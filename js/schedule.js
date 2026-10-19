@@ -640,6 +640,11 @@ container.innerHTML = `<style>
 .ep-tbl tfoot td { background: #f6e7c1; font-weight: 700; }
 .ep-sub { display: block; font-size: 11px; color: #8a8279; font-weight: 400; }
 .ep-note { font-size: 12px; color: #8a8279; margin: 8px 0 0; }
+.ep-wrap { overflow: auto; max-height: calc(100vh - 215px); }
+.ep-tbl { font-size: 12.5px; }
+.ep-tbl th, .ep-tbl td { padding: 2px 8px; }
+.ep-tbl th { position: sticky; top: 0; z-index: 1; box-shadow: 0 1px 0 #cfc9c1; }
+.ep-sub { display: inline; margin-left: 6px; }
 </style>
 <h2 style="margin:4px 0 12px;font-size:18px">Estado de Proyectos</h2>
 <div class="ep-wrap"><table class="ep-tbl">
