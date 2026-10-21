@@ -21,6 +21,11 @@ const App = {
 
   async init() {
     this._detectMonthYear();
+        // Conexión por defecto a ClickUp (igual que planta e instalación) y actualización automática cada 5 minutos.
+    if (!ClickUpIntegration.getListId()) ClickUpIntegration.setListId('90090072307');
+    if (!ClickUpIntegration.getApiKey()) ClickUpIntegration.setApiKey('pk_88470791_HQLTVBC5M58X1SD3H6BHDSYQFLIX931H');
+    ClickUpIntegration._CACHE_TTL = 5 * 60 * 1000;
+    setInterval(() => { if (ClickUpIntegration.getApiKey() && !document.hidden && !(Schedule._asignDraft && Schedule._asignDraft.size)) this._syncClickUp(false); }, 5 * 60 * 1000);
     this._bindNav();
     this._bindUpload();
     this._bindModeToggle();
