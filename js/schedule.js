@@ -609,6 +609,13 @@ if (!p) { p = { id: root.id, name: root.name || '', total: 0, cancel: 0, porDibu
 p[key]++;
 if (key !== 'sinAsignar') p.total++;
 }
+// Proyectos "por iniciar": la tarea principal está en "sin asignar" y se lista aparte con todas sus subtareas.
+// En los demás proyectos, una subtarea "sin asignar" cuenta como pendiente por obra.
+for (const p of projects.values()) {
+const loose = p.sinAsignar;
+if (normStr(byId.get(p.id)?.status?.status || '') === 'sin asignar') { p.sinAsignar = p.total + loose; for (const c of ['cancel', 'porDibujar', 'enDibujo', 'enviadoAprob', 'revision', 'pendObra', 'fabrica']) p[c] = 0; }
+else { p.pendObra += loose; p.total += loose; p.sinAsignar = 0; }
+}
 const list = [...projects.values()];
 const byName = (a, b) => a.name.localeCompare(b.name, 'es');
 return {
