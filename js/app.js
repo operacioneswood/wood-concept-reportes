@@ -66,53 +66,20 @@ const App = {
   // ── ClickUp mode toggle ───────────────────────────────────
 
   _bindModeToggle() {
-    const csvBtn  = document.getElementById('mode-toggle-csv');
-    const apiBtn  = document.getElementById('mode-toggle-api');
-    const csvPane = document.getElementById('dz-left-csv');
-    const apiPane = document.getElementById('dz-left-api');
+    // Solo ClickUp: sin CSV ni Registro de Entrada.
+    this._sourceMode = 'api';
     const syncBtn   = document.getElementById('cu-sync-btn');
     const forceBtn  = document.getElementById('cu-force-btn');
     const listInput = document.getElementById('cu-list-id');
     const keyInput  = document.getElementById('cu-api-key');
-
-    if (!csvBtn || !apiBtn) return;
-
-    // Restore saved values
-    if (listInput) listInput.value = ClickUpIntegration.getListId();
-    if (keyInput)  keyInput.value  = ClickUpIntegration.getApiKey();
-
-    const switchMode = mode => {
-      this._sourceMode = mode;
-      csvBtn.classList.toggle('active', mode === 'csv');
-      apiBtn.classList.toggle('active', mode === 'api');
-      if (csvPane) csvPane.style.display = mode === 'csv' ? '' : 'none';
-      if (apiPane) apiPane.style.display = mode === 'api' ? '' : 'none';
-
-      // Restore or clear cuApiData display
-      if (mode === 'api') this._updateSyncInfo();
-
-      this._onFilesChanged();
-    };
-
-    csvBtn.addEventListener('click', () => switchMode('csv'));
-    apiBtn.addEventListener('click', () => switchMode('api'));
-
-    // Persist values on change
-    if (keyInput)  keyInput.addEventListener('input',  () => ClickUpIntegration.setApiKey(keyInput.value));
-    if (listInput) listInput.addEventListener('input',  () => ClickUpIntegration.setListId(listInput.value));
-
-    // Sync buttons
-    if (syncBtn)  syncBtn.addEventListener('click',  () => this._syncClickUp(false));
-    if (forceBtn) forceBtn.addEventListener('click', () => this._syncClickUp(true));
-
-    // Show last sync info if already synced
+    if (listInput) { listInput.value = ClickUpIntegration.getListId(); listInput.addEventListener('input', () => ClickUpIntegration.setListId(listInput.value)); }
+    if (keyInput)  { keyInput.value  = ClickUpIntegration.getApiKey(); keyInput.addEventListener('input',  () => ClickUpIntegration.setApiKey(keyInput.value)); }
+    if (syncBtn)   syncBtn.addEventListener('click',  () => this._syncClickUp(false));
+    if (forceBtn)  forceBtn.addEventListener('click', () => this._syncClickUp(true));
     this._updateSyncInfo();
-
-    // ── Auto-switch to API mode and sync on page load ─────────
-    if (ClickUpIntegration.getApiKey() && ClickUpIntegration.getListId()) {
-      switchMode('api');
-      this._syncClickUp(false);
-    }
+    this._onFilesChanged();
+    // Sincroniza automáticamente al abrir la página.
+    if (ClickUpIntegration.getApiKey() && ClickUpIntegration.getListId()) this._syncClickUp(false);
   },
 
   async _syncClickUp(force = false) {
