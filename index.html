@@ -37,52 +37,25 @@
 
         <div class="upload-header">
           <h1>Wood Concept · Reporte de Diseño</h1>
-          <p>Sube uno o ambos archivos CSV para generar el reporte del mes</p>
+          <p>Genera el reporte del mes con los datos de ClickUp</p>
         </div>
 
         <div id="error-banner" class="error-banner"></div>
 
-        <div class="drop-zones">
+        <div class="drop-zones" style="display:block;max-width:520px;margin:0 auto">
 
-          <!-- Left column: mode toggle + CSV or API panel -->
+          <!-- Conexión con ClickUp -->
           <div id="dz-left">
-
-            <!-- Mode toggle -->
-            <div class="mode-toggle" id="mode-toggle">
-              <button class="mode-toggle-btn active" id="mode-toggle-csv" data-mode="csv">Subir CSV</button>
-              <button class="mode-toggle-btn"        id="mode-toggle-api" data-mode="api">Conectar ClickUp</button>
-            </div>
-
-            <!-- CSV panel (default) -->
-            <div id="dz-left-csv">
-              <div class="drop-zone" id="dz-cu">
-                <input type="file" accept=".csv,.txt" id="file-cu" class="dz-input">
-                <div class="dz-idle">
-                  <div class="dz-icon">📋</div>
-                  <span class="dz-badge req">Requerido para Modo A / B</span>
-                  <h3>ClickUp CSV</h3>
-                  <div class="dz-hint">Aprobación + producción<br>Arrastra o haz clic</div>
-                </div>
-                <div class="dz-loaded-state" id="dls-cu">
-                  <div class="dz-check">✓</div>
-                  <div class="dz-fname" id="dfname-cu"></div>
-                  <div class="dz-fsize" id="dfsize-cu"></div>
-                  <button class="dz-remove" id="rm-cu">Quitar archivo</button>
-                </div>
-              </div>
-            </div>
-
-            <!-- API panel (hidden by default) -->
-            <div id="dz-left-api" style="display:none">
+            <div id="dz-left-api">
               <div class="cu-api-card">
                 <div class="cu-api-icon">🔗</div>
                 <div class="cu-api-title">ClickUp API</div>
                 <div class="cu-api-desc">Carga las tareas activas directamente desde tu lista de ClickUp.</div>
-                <label class="cu-api-label" for="cu-api-key">API Token</label>
+                <details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">Ajustes de conexión</summary><label class="cu-api-label" for="cu-api-key">API Token</label>
                 <input type="password" id="cu-api-key" class="cu-list-input" placeholder="pk_xxxxxxxxxxxxxxxx" autocomplete="off">
                 <label class="cu-api-label" for="cu-list-id">ID — lista, carpeta o espacio</label>
                 <input type="text" id="cu-list-id" class="cu-list-input" placeholder="ej. 901234567890">
-                <div class="cu-list-hint">Acepta cualquier ID de ClickUp. En la app: clic derecho sobre el espacio, carpeta o lista → <b>Copiar enlace</b> → el ID es el número al final.</div>
+                <div class="cu-list-hint">Acepta cualquier ID de ClickUp. En la app: clic derecho sobre el espacio, carpeta o lista → <b>Copiar enlace</b> → el ID es el número al final.</div></details>
                 <div style="display:flex;gap:8px;margin-top:10px">
                   <button class="btn-primary cu-sync-btn" id="cu-sync-btn">↻ Sincronizar</button>
                   <button class="btn-secondary" id="cu-force-btn" title="Ignorar caché y sincronizar desde ClickUp">🔄 Forzar</button>
@@ -93,28 +66,6 @@
 
           </div><!-- #dz-left -->
 
-          <!-- Right column: Registro de Entrada (always visible) -->
-          <div class="drop-zone" id="dz-reg">
-            <input type="file" accept=".csv,.txt" id="file-reg" class="dz-input">
-            <div class="dz-idle">
-              <div class="dz-icon">🏭</div>
-              <span class="dz-badge opt">Opcional — Modo B / C</span>
-              <h3>Registro de Entrada</h3>
-              <div class="dz-hint">Verificación de fábrica<br>Arrastra o haz clic</div>
-            </div>
-            <div class="dz-loaded-state" id="dls-reg">
-              <div class="dz-check">✓</div>
-              <div class="dz-fname" id="dfname-reg"></div>
-              <div class="dz-fsize" id="dfsize-reg"></div>
-              <button class="dz-remove" id="rm-reg">Quitar archivo</button>
-            </div>
-          </div>
-
-        </div>
-
-        <div class="mode-badge hidden" id="mode-badge">
-          <div class="mb-dot"></div>
-          <span id="mode-text"></span>
         </div>
 
         <div class="controls-row">
@@ -134,30 +85,6 @@
         </div>
 
         <div id="saved-months-panel" class="saved-months-panel"></div>
-
-        <div class="instructions">
-          <div class="instr-title">Instrucciones de exportación</div>
-          <div class="instr-cols">
-            <div>
-              <h5>ClickUp CSV</h5>
-              <ol>
-                <li>Abre la vista de lista con todas las tareas</li>
-                <li>Clic en "···" → Export → CSV</li>
-                <li>Incluye: Task Type, Parent Name, NO. OP, Nivel, Assignee, FIN DE DIBUJO DE APROBACIÓN, ENVÍO A FÁBRICA</li>
-                <li>Sube el archivo aquí</li>
-              </ol>
-            </div>
-            <div>
-              <h5>Registro de Entrada (Excel)</h5>
-              <ol>
-                <li>Abre el Registro de Entrada en Excel</li>
-                <li>Archivo → Guardar como → CSV (delimitado por comas)</li>
-                <li>Columnas: OP, NIVEL, ENTRADA, DISEÑADOR, DESCRIPCIÓN, CLIENTE</li>
-                <li>Sube el archivo aquí</li>
-              </ol>
-            </div>
-          </div>
-        </div>
 
       </div>
     </div>
